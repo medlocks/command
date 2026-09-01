@@ -1,0 +1,21 @@
+# dependencies
+node_modules
+
+# build output
+dist
+dev-dist
+
+# env
+.env
+.env.local
+
+# editor/OS
+.DS_Store
+*.log
+
+# supabase generated types are checked in as a placeholder; local CLI cache is not.
+# `.supabase` covers older CLI versions' cache location; `supabase/.temp` is
+# where the currently-installed CLI actually writes it (project ref, org id,
+# DB pooler URL — local link state, never meant to be version-controlled).
+.supabase
+supabase/.temp

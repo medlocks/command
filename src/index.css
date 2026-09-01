@@ -1,0 +1,256 @@
+@import 'tailwindcss';
+
+/*
+ * MedLocks design tokens — visual identity refresh (22 Aug 2026): moved
+ * from the original charcoal/blush/cream brand palette to a softer
+ * pink→lavender→blue gradient direction, matched against a real reference
+ * (exampleUI, Variant B) the owner supplied. Logo and typography are
+ * unchanged and out of scope — this is chrome only (backgrounds, cards,
+ * buttons, badges, accent colours, charts).
+ *
+ * The one deliberate departure from the reference: its accent gradient
+ * (#6d5bd0 → #d0559e, a bright indigo-to-rose purple) sits almost on top
+ * of two colours already claimed by the categorical chart palette below
+ * (--color-cat-5 blended-CAC purple, --color-cat-11/--color-cat-12
+ * service-profitability/stock pink-magenta) — validated with the dataviz
+ * skill's CVD checker, not eyeballed: the reference's exact hues fail
+ * pairwise separation against those categories even for normal vision
+ * (ΔE as low as 6.0, well under the 15 floor). The accent below
+ * (#5b1a5e / #9d174d, aubergine → deep rose-berry) is pulled darker and
+ * hue-shifted just enough to pass cleanly against the same categorical
+ * set (light: ΔE ≥15 vs cat-5/11/12 CVD-simulated; dark equivalent
+ * #e29fd6 / #d87fc9 checked the same way against the dark-mode cat
+ * values) while keeping the same purple-to-magenta feel and the
+ * reference's exact gradient angle/usage pattern (signal bars, avatar
+ * fills, the hero impact pill). Every other categorical/status/sequential
+ * colour below is untouched — already validated for a different job
+ * (series/state identity, not brand mood) and not worth re-litigating.
+ *
+ * Cards are translucent (`bg-[var(--color-surface)]/75` + backdrop-blur),
+ * matching the reference's frosted-glass treatment, over a page-level
+ * gradient — not a flat page colour. This was checked, not assumed: white
+ * at 75% opacity over any of the three gradient stops below blends to
+ * within a few RGB values of pure white, so every existing text-contrast
+ * figure (computed against #ffffff) still holds against the real,
+ * translucent card surface. `--color-page` itself stays a flat, solid
+ * token — unrelated existing usages (an input background, a hover state,
+ * a pill fill) depend on it being a plain colour, which a CSS custom
+ * property holding a gradient can't be.
+ *
+ * Type scale & spacing: intentionally NOT reinvented here — Tailwind's
+ * built-in scale (text-xs…text-6xl, the 4px spacing rhythm) is already a
+ * single centralized system that every component in this app already
+ * codes against via utility classes, never arbitrary pixel values. The
+ * only scale-related token this file adds is --font-sans, so the brand
+ * typeface flows through every text-* utility automatically. Typography
+ * itself (Plus Jakarta Sans) is unchanged — a deliberate call, not an
+ * oversight; the reference's own Manrope/DM Sans pairing was explicitly
+ * not adopted.
+ */
+
+@font-face {
+  font-family: 'Plus Jakarta Sans';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/plus-jakarta-sans-400.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Plus Jakarta Sans';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('/fonts/plus-jakarta-sans-500.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Plus Jakarta Sans';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('/fonts/plus-jakarta-sans-600.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Plus Jakarta Sans';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('/fonts/plus-jakarta-sans-700.woff2') format('woff2');
+}
+
+/* A new item settling into place (Requirements Section 7.4 "next level" design bar) — genuine motion on state change, not a static re-render. */
+@keyframes flagIn {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@theme {
+  --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+
+  /* ---- Brand ---- */
+  --color-page: #f4eef8; /* flat fallback — the handful of non-page-background consumers (input fill, hover state, a pill) that need a plain colour, not a gradient */
+  --color-gradient-start: #fbe4ee; /* pink */
+  --color-gradient-mid: #eae3f7; /* lavender */
+  --color-gradient-end: #dde6f9; /* blue */
+  --color-surface: #ffffff; /* Card.tsx applies translucency + blur on top of this — see file header */
+  --color-surface-raised: #ffffff;
+  --color-ink: #2f2a42; /* cool dark plum-charcoal, replacing the old warm charcoal — 13.7:1 vs white */
+  --color-ink-secondary: rgba(47, 42, 66, 0.72);
+  --color-ink-muted: rgba(47, 42, 66, 0.5);
+  --color-border: rgba(47, 42, 66, 0.12);
+  --color-grid: rgba(47, 42, 66, 0.1);
+  --color-baseline: rgba(47, 42, 66, 0.28);
+
+  /* Aubergine → deep rose-berry — validated against the categorical set below, see file header for why these hexes specifically. */
+  --color-accent: #9d174d; /* CTAs, active nav, key metric highlights, hero emphasis — 7.9:1 vs white */
+  --color-accent-strong: #5b1a5e; /* darker step for text-on-light (12:1 contrast) — links, pressed states */
+  --color-accent-soft: #fce4ee; /* pale wash for active-pill backgrounds, subtle highlight chips */
+  --color-accent-gradient-start: #5b1a5e;
+  --color-accent-gradient-end: #9d174d;
+  /* The brand hue used as the *single* colour in single-series charts/sparklines
+     (dataviz skill: "sequential = one hue") — kept as its own token, distinct
+     from categorical slot 1 below, so brand emphasis and category identity
+     never fight each other in the same chart. */
+  --color-chart-primary: #9d174d;
+
+  /* ---- Data-viz palette (validated separately — CVD-checked, unrelated to brand) ----
+     Re-derived in full (not just the 3 colors originally flagged) — running the
+     validator with --pairs all revealed that most of the original 9 colors had at
+     least one failing pairwise relationship once checked rigorously, including
+     ones assumed safe (blue/violet/purple, green/aqua in dark mode). Found via a
+     simulated-annealing search against the validator's own `validate()` function
+     rather than hand-picked, since manual iteration kept revealing new marginal
+     pairs each time an earlier one was fixed. cat-3/cat-4 deliberately carry the
+     two categories with the weakest light/dark hue continuity (still individually
+     valid in both modes, just not as visually matched pair-to-pair) — placed there
+     because 'marketing-recommendation' and 'expansion-readiness' are defined
+     categories with no candidate-generating logic in todoList.ts yet, so they
+     never actually render. Re-validate with --pairs all in both modes before
+     changing any of these again. */
+  /* Categorical (fixed order — never cycled/reassigned per series) */
+  --color-cat-1: #004ef6; /* blue — colour top-up */
+  --color-cat-2: #f15800; /* orange — ad performance */
+  --color-cat-3: #00cab2; /* teal — marketing (unused category, weakest light/dark match) */
+  --color-cat-4: #275a91; /* blue — expansion readiness (unused category, weakest light/dark match) */
+  --color-cat-5: #a700cd; /* purple — blended CAC */
+  --color-cat-6: #00a21a; /* green — AOV */
+  --color-cat-7: #146841; /* dark green/teal — stylist profitability */
+  --color-cat-8: #aa3a00; /* red-orange — lapse risk */
+  --color-cat-9: #a1b900; /* olive — SEO */
+  --color-cat-10: #0098c0; /* cyan — vacancy impact */
+  --color-cat-11: #bd638b; /* pink-magenta — service profitability */
+  --color-cat-12: #ff61ef; /* magenta-pink — stock */
+
+  /* Status (reserved — never reused as series identity) */
+  --color-good: #0ca30c;
+  --color-warning: #fab219;
+  --color-serious: #ec835a;
+  --color-critical: #d03b3b;
+  --color-good-text: #006300;
+
+  /* Sequential (blue ramp) — used for magnitude encodings distinct from the brand's single-hue charts */
+  --color-seq-100: #cde2fb;
+  --color-seq-250: #86b6ef;
+  --color-seq-450: #2a78d6;
+  --color-seq-600: #184f95;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme='light'])) {
+    color-scheme: dark;
+    --color-page: #1d1b24;
+    --color-gradient-start: #241f2c;
+    --color-gradient-mid: #1e2130;
+    --color-gradient-end: #1a2436;
+    --color-surface: #262430;
+    --color-surface-raised: #2d2b38;
+    --color-ink: #f0ecf5;
+    --color-ink-secondary: rgba(240, 236, 245, 0.72);
+    --color-ink-muted: rgba(240, 236, 245, 0.5);
+    --color-border: rgba(240, 236, 245, 0.12);
+    --color-grid: rgba(240, 236, 245, 0.1);
+    --color-baseline: rgba(240, 236, 245, 0.3);
+
+    /* Lighter aubergine/rose-berry steps for text-on-dark — validated the same way as light mode against this same dark-mode categorical set (cat-5/11/12 below): --color-accent-strong 8.3:1 vs page, --color-accent 6.4:1, both clear CVD/normal-vision separation from cat-5/11/12. */
+    --color-accent: #d87fc9;
+    --color-accent-strong: #e29fd6;
+    --color-accent-soft: rgba(216, 127, 201, 0.16);
+    --color-accent-gradient-start: #e29fd6;
+    --color-accent-gradient-end: #d87fc9;
+    --color-chart-primary: #d87fc9;
+
+    --color-cat-1: #0541fd;
+    --color-cat-2: #b32c00;
+    --color-cat-3: #0099fb;
+    --color-cat-4: #9b72d4;
+    --color-cat-5: #841ad1;
+    --color-cat-6: #1a7546;
+    --color-cat-7: #00a194;
+    --color-cat-8: #ea5071;
+    --color-cat-9: #00a900;
+    --color-cat-10: #0070ae;
+    --color-cat-11: #cb00a3;
+    --color-cat-12: #824d80;
+
+    --color-good: #0ca30c;
+    --color-warning: #fab219;
+    --color-serious: #ec835a;
+    --color-critical: #e66767;
+    --color-good-text: #0ca30c;
+  }
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --color-page: #1d1b24;
+  --color-gradient-start: #241f2c;
+  --color-gradient-mid: #1e2130;
+  --color-gradient-end: #1a2436;
+  --color-surface: #262430;
+  --color-surface-raised: #2d2b38;
+  --color-ink: #f0ecf5;
+  --color-ink-secondary: rgba(240, 236, 245, 0.72);
+  --color-ink-muted: rgba(240, 236, 245, 0.5);
+  --color-border: rgba(240, 236, 245, 0.12);
+  --color-grid: rgba(240, 236, 245, 0.1);
+  --color-baseline: rgba(240, 236, 245, 0.3);
+
+  --color-accent: #d87fc9;
+  --color-accent-strong: #e29fd6;
+  --color-accent-soft: rgba(216, 127, 201, 0.16);
+  --color-accent-gradient-start: #e29fd6;
+  --color-accent-gradient-end: #d87fc9;
+  --color-chart-primary: #d87fc9;
+
+  --color-cat-1: #0541fd;
+  --color-cat-2: #b32c00;
+  --color-cat-3: #0099fb;
+  --color-cat-4: #9b72d4;
+  --color-cat-5: #841ad1;
+  --color-cat-6: #1a7546;
+  --color-cat-7: #00a194;
+  --color-cat-8: #ea5071;
+  --color-cat-9: #00a900;
+  --color-cat-10: #0070ae;
+  --color-cat-11: #cb00a3;
+  --color-cat-12: #824d80;
+
+  --color-good: #0ca30c;
+  --color-warning: #fab219;
+  --color-serious: #ec835a;
+  --color-critical: #e66767;
+  --color-good-text: #0ca30c;
+}
+
+body {
+  background-color: var(--color-page); /* flat fallback so there's never a moment of unstyled/transparent background before the gradient below paints */
+  background-image: linear-gradient(160deg, var(--color-gradient-start) 0%, var(--color-gradient-mid) 45%, var(--color-gradient-end) 100%);
+  background-attachment: fixed;
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+}

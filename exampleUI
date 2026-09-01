@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>MedLocks — UI Direction Comparison</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=DM+Sans:wght@400;500;700&display=swap');
+
+  :root {
+    --charcoal: #38352F;
+    --charcoal-soft: #4A4A47;
+    --blush: #E8A0B8;
+    --blush-deep: #C97C9A;
+    --cream: #EDE8DE;
+    --cream-card: #FAF8F3;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: 'Manrope', sans-serif;
+    background: #1a1a1a;
+    padding: 40px 20px;
+    color: #222;
+  }
+
+  .toggle-bar {
+    max-width: 1100px;
+    margin: 0 auto 32px;
+    display: flex;
+    justify-content: center;
+    gap: 12px;
+  }
+  .toggle-bar button {
+    font-family: 'Manrope', sans-serif;
+    font-weight: 700;
+    font-size: 14px;
+    padding: 12px 24px;
+    border-radius: 999px;
+    border: 2px solid #444;
+    background: #222;
+    color: #999;
+    cursor: pointer;
+    transition: all 0.2s ease;
+  }
+  .toggle-bar button.active {
+    background: #fff;
+    color: #111;
+    border-color: #fff;
+  }
+
+  .stage {
+    max-width: 1100px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 24px;
+  }
+  .label {
+    text-align: center;
+    color: #888;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    margin-bottom: -8px;
+  }
+
+  .phone {
+    width: 380px;
+    margin: 0 auto;
+    border-radius: 32px;
+    overflow: hidden;
+    box-shadow: 0 30px 80px rgba(0,0,0,0.5);
+  }
+
+  /* ============ VARIANT A: Restrained / brand-consistent ============ */
+  .variant-a .phone { background: var(--cream); }
+  .variant-a .inner { padding: 28px 22px 40px; }
+  .variant-a .top-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 22px; }
+  .variant-a .logo-mark {
+    width: 40px; height: 40px; border-radius: 12px;
+    background: var(--charcoal);
+    display: flex; align-items: center; justify-content: center;
+    color: var(--blush); font-weight: 800; font-size: 15px;
+  }
+  .variant-a .badge {
+    background: var(--charcoal); color: var(--cream);
+    font-size: 12px; font-weight: 700; padding: 6px 12px; border-radius: 999px;
+  }
+  .variant-a h1 {
+    font-size: 26px; font-weight: 800; color: var(--charcoal);
+    margin: 0 0 4px; letter-spacing: -0.02em;
+  }
+  .variant-a .sub { color: #8a8578; font-size: 14px; margin: 0 0 22px; font-family: 'DM Sans', sans-serif; }
+
+  .variant-a .card {
+    background: var(--cream-card);
+    border-radius: 20px;
+    padding: 20px;
+    margin-bottom: 14px;
+    border: 1px solid #e2ddd0;
+  }
+  .variant-a .card-label { color: #a49d8c; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 10px; }
+
+  .variant-a .signal-bar {
+    background: linear-gradient(90deg, var(--charcoal) 0%, var(--blush-deep) 100%);
+    border-radius: 14px;
+    padding: 16px 18px;
+    color: #fff;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-weight: 700;
+    font-size: 15px;
+  }
+  .variant-a .signal-bar .score { font-size: 20px; }
+
+  .variant-a .stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .variant-a .stat { background: #fff; border-radius: 14px; padding: 14px; border: 1px solid #e2ddd0; }
+  .variant-a .stat-label { font-size: 11px; color: #a49d8c; font-weight: 600; margin-bottom: 4px; }
+  .variant-a .stat-value { font-size: 20px; font-weight: 800; color: var(--charcoal); }
+
+  .variant-a .avatars { display: flex; margin-top: 8px; }
+  .variant-a .avatar {
+    width: 30px; height: 30px; border-radius: 50%;
+    background: var(--blush); border: 2px solid var(--cream-card);
+    margin-left: -8px; display: flex; align-items: center; justify-content: center;
+    font-size: 11px; font-weight: 700; color: var(--charcoal);
+  }
+  .variant-a .avatar:first-child { margin-left: 0; }
+
+  .variant-a .todo-item {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 12px 0; border-bottom: 1px solid #e2ddd0;
+  }
+  .variant-a .todo-item:last-child { border-bottom: none; }
+  .variant-a .todo-title { font-size: 14px; font-weight: 600; color: var(--charcoal); }
+  .variant-a .todo-impact { font-size: 13px; font-weight: 800; color: var(--blush-deep); background: #fbe9ef; padding: 4px 10px; border-radius: 999px; }
+
+  /* ============ VARIANT B: Full gradient reference-style ============ */
+  .variant-b .phone {
+    background: linear-gradient(160deg, #fbe4ee 0%, #eae3f7 45%, #dde6f9 100%);
+  }
+  .variant-b .inner { padding: 28px 22px 40px; }
+  .variant-b .top-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 22px; }
+  .variant-b .logo-mark {
+    width: 40px; height: 40px; border-radius: 50%;
+    background: linear-gradient(135deg, #6d5bd0, #d0559e);
+    display: flex; align-items: center; justify-content: center;
+    color: #fff; font-weight: 800; font-size: 15px;
+  }
+  .variant-b .badge {
+    background: rgba(255,255,255,0.7); color: #6d5bd0;
+    font-size: 12px; font-weight: 700; padding: 6px 14px; border-radius: 999px;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .variant-b h1 {
+    font-size: 26px; font-weight: 800; color: #2b2740;
+    margin: 0 0 4px; letter-spacing: -0.02em;
+  }
+  .variant-b .sub { color: #8b84a8; font-size: 14px; margin: 0 0 22px; font-family: 'DM Sans', sans-serif; }
+
+  .variant-b .card {
+    background: rgba(255,255,255,0.75);
+    backdrop-filter: blur(6px);
+    border-radius: 22px;
+    padding: 20px;
+    margin-bottom: 14px;
+    border: 1px solid rgba(255,255,255,0.6);
+  }
+  .variant-b .card-label { color: #9c93b8; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 10px; }
+
+  .variant-b .signal-bar {
+    background: linear-gradient(90deg, #6d5bd0 0%, #d0559e 100%);
+    border-radius: 16px;
+    padding: 16px 18px;
+    color: #fff;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-weight: 700;
+    font-size: 15px;
+  }
+  .variant-b .signal-bar .score { font-size: 20px; }
+
+  .variant-b .stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .variant-b .stat { background: rgba(255,255,255,0.6); border-radius: 16px; padding: 14px; }
+  .variant-b .stat-label { font-size: 11px; color: #9c93b8; font-weight: 600; margin-bottom: 4px; }
+  .variant-b .stat-value { font-size: 20px; font-weight: 800; color: #2b2740; }
+
+  .variant-b .avatars { display: flex; margin-top: 8px; }
+  .variant-b .avatar {
+    width: 30px; height: 30px; border-radius: 50%;
+    background: linear-gradient(135deg, #6d5bd0, #d0559e);
+    border: 2px solid #fff;
+    margin-left: -8px; display: flex; align-items: center; justify-content: center;
+    font-size: 11px; font-weight: 700; color: #fff;
+  }
+  .variant-b .avatar:first-child { margin-left: 0; }
+
+  .variant-b .todo-item {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 12px 0; border-bottom: 1px solid rgba(155,140,180,0.15);
+  }
+  .variant-b .todo-item:last-child { border-bottom: none; }
+  .variant-b .todo-title { font-size: 14px; font-weight: 600; color: #2b2740; }
+  .variant-b .todo-impact {
+    font-size: 13px; font-weight: 800; color: #fff;
+    background: linear-gradient(135deg, #6d5bd0, #d0559e);
+    padding: 4px 12px; border-radius: 999px;
+  }
+
+  .hidden { display: none; }
+
+  .note {
+    max-width: 640px;
+    margin: 32px auto 0;
+    text-align: center;
+    color: #999;
+    font-size: 13px;
+    font-family: 'DM Sans', sans-serif;
+    line-height: 1.6;
+  }
+</style>
+</head>
+<body>
+
+  <div class="toggle-bar">
+    <button id="btn-a" class="active" onclick="show('a')">A — Brand-consistent</button>
+    <button id="btn-b" onclick="show('b')">B — Full gradient</button>
+  </div>
+
+  <div id="stage-a" class="stage variant-a">
+    <div class="label">Variant A · Existing charcoal / blush / cream palette, reference's layout patterns</div>
+    <div class="phone">
+      <div class="inner">
+        <div class="top-row">
+          <div class="logo-mark">ML</div>
+          <div class="badge">4 open</div>
+        </div>
+        <h1>Good morning</h1>
+        <p class="sub">Here's what needs your attention today</p>
+
+        <div class="card">
+          <div class="card-label">Hiring Signal</div>
+          <div class="signal-bar">
+            <span>Capacity pressure</span>
+            <span class="score">Medium</span>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-label">This week</div>
+          <div class="stat-grid">
+            <div class="stat">
+              <div class="stat-label">Revenue</div>
+              <div class="stat-value">£3,240</div>
+            </div>
+            <div class="stat">
+              <div class="stat-label">Utilization</div>
+              <div class="stat-value">78%</div>
+            </div>
+          </div>
+          <div class="avatars">
+            <div class="avatar">EW</div>
+            <div class="avatar">CS</div>
+            <div class="avatar">+2</div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-label">To-do</div>
+          <div class="todo-item">
+            <span class="todo-title">Colour top-up — 6 clients due</span>
+            <span class="todo-impact">£190</span>
+          </div>
+          <div class="todo-item">
+            <span class="todo-title">Retail conversion below target</span>
+            <span class="todo-impact">£85</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="stage-b" class="stage variant-b hidden">
+    <div class="label">Variant B · Close to the reference's actual gradient / colour direction</div>
+    <div class="phone">
+      <div class="inner">
+        <div class="top-row">
+          <div class="logo-mark">ML</div>
+          <div class="badge">● 4 open</div>
+        </div>
+        <h1>Good morning</h1>
+        <p class="sub">Here's what needs your attention today</p>
+
+        <div class="card">
+          <div class="card-label">Hiring Signal</div>
+          <div class="signal-bar">
+            <span>Capacity pressure</span>
+            <span class="score">Medium</span>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-label">This week</div>
+          <div class="stat-grid">
+            <div class="stat">
+              <div class="stat-label">Revenue</div>
+              <div class="stat-value">£3,240</div>
+            </div>
+            <div class="stat">
+              <div class="stat-label">Utilization</div>
+              <div class="stat-value">78%</div>
+            </div>
+          </div>
+          <div class="avatars">
+            <div class="avatar">EW</div>
+            <div class="avatar">CS</div>
+            <div class="avatar">+2</div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-label">To-do</div>
+          <div class="todo-item">
+            <span class="todo-title">Colour top-up — 6 clients due</span>
+            <span class="todo-impact">£190</span>
+          </div>
+          <div class="todo-item">
+            <span class="todo-title">Retail conversion below target</span>
+            <span class="todo-impact">£85</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <p class="note">Same real Home-tab content, same underlying data — only the visual language changes.<br>
+  Variant A keeps your existing charcoal/blush/cream identity but borrows the reference's cleaner card structure, spacing, and pill badges.<br>
+  Variant B moves closer to the reference's actual colour palette and gradient treatment.</p>
+
+<script>
+  function show(v) {
+    document.getElementById('stage-a').classList.toggle('hidden', v !== 'a');
+    document.getElementById('stage-b').classList.toggle('hidden', v !== 'b');
+    document.getElementById('btn-a').classList.toggle('active', v === 'a');
+    document.getElementById('btn-b').classList.toggle('active', v === 'b');
+  }
+</script>
+
+</body>
+</html>

@@ -1,0 +1,11 @@
+# Minimal config — exists only to force verify_jwt back to true on
+# warehouse-write after an accidental `--no-verify-jwt` deploy flipped it
+# off (2026-08-21). The architecture relies on this being true: the anon
+# key sent as the Authorization header satisfies this platform-level gate,
+# and the separate x-app-secret header is the app-level (low-bar) gate on
+# top of it — see warehouse-write/index.ts's own doc comment.
+[functions.warehouse-write]
+verify_jwt = true
+
+[functions.warehouse-read]
+verify_jwt = true
