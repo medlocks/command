@@ -889,5 +889,42 @@ group by s.raw_service_name, s.price, s.duration_minutes, s.estimated_product_co
 order by profit_per_chair_hour asc;
 
 -- =====================================================================
+-- Daily digest schedule (added 3 Sep 2026)
+-- =====================================================================
+-- Pushes a proactive email once a day via the `daily-digest` Edge
+-- Function, instead of leaving every insight (stock flags, CAC drift) as
+-- something that only helps if someone remembers to open the app.
+--
+-- The two secrets `net.http_post` needs below (the anon key, to satisfy
+-- the Edge Function gateway's own JWT check, and a shared x-app-secret
+-- matching the function's `DIGEST_SHARED_SECRET`) are NOT set by this
+-- file — they're created once via `vault.create_secret(value, name)`,
+-- run directly against the live database, never checked into git. This
+-- file only re-runs safely: it references those vault secrets by name.
+--
+-- Schedule is UTC-fixed, not timezone-aware — 06:00 UTC lands at 7am UK
+-- time during BST (spring–October) and 6am during GMT (winter). A known,
+-- disclosed simplification for v1, not an oversight.
+
+create extension if not exists pg_cron with schema extensions;
+create extension if not exists pg_net with schema extensions;
+
+select cron.schedule(
+  'daily-digest',
+  '0 6 * * *',
+  $$
+  select net.http_post(
+    url := 'https://yimtohrunyzkxdrlhhcr.supabase.co/functions/v1/daily-digest',
+    headers := jsonb_build_object(
+      'Content-Type', 'application/json',
+      'Authorization', 'Bearer ' || (select decrypted_secret from vault.decrypted_secrets where name = 'digest_cron_anon_key'),
+      'x-app-secret', (select decrypted_secret from vault.decrypted_secrets where name = 'digest_cron_shared_secret')
+    ),
+    body := '{}'::jsonb
+  ) as request_id;
+  $$
+);
+
+-- =====================================================================
 -- End of schema v1
 -- =====================================================================
