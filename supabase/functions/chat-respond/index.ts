@@ -39,6 +39,16 @@
 // and salon location are honestly absent for the same reason they're
 // absent everywhere else in this cutover: no real data source exists yet.
 //
+// Industry Benchmark Knowledge Base, Stage 2 (3 Sep 2026) — wires in the
+// real `industry_benchmarks` table (Section 3.4, Stage 1 of this area's
+// own cutover). Framed deliberately as the owner's own paraphrased
+// reference notes, not independently verified fact — Section 3.4's stated
+// purpose is comparative context, not a second source of ground truth.
+// The table is genuinely empty as of this stage landing; degrades the
+// same honest way every other section here does when its own real data
+// is empty (see `buildIndustryBenchmarksContext`'s own doc comment).
+//
+
 // Two deliberate data-minimization decisions, made explicitly because this
 // is the first time these classes of real personal/financial data leave
 // this app's own infrastructure for a third party at all — a materially
@@ -548,6 +558,67 @@ ${lines.length > 0 ? lines.join('\n') : '(no stylist activity in this window yet
 }
 
 // ---------------------------------------------------------------------
+// Industry benchmark notes (Requirements Section 3.4, Stage 2 of this
+// area's cutover, added 3 Sep 2026) — owner-curated reference material
+// from the real `industry_benchmarks` table (Stage 1). Deliberately framed
+// as the owner's own paraphrased notes, not independently verified
+// external fact — Section 3.4's own stated purpose is "comparative
+// context... rather than judging your numbers in isolation," not a
+// second source of ground truth the model should treat as authoritative.
+// The table is genuinely empty today; this degrades the same honest way
+// every other section here does (see `buildMarketingContext`'s own empty
+// case) — a real, present section header with an explicit "(none curated
+// yet)" placeholder, not a section that vanishes or gets faked. The
+// existing "CRITICAL GUARDRAIL" (never state a fact not given below)
+// already covers not inventing benchmark figures; this doesn't relax it.
+// ---------------------------------------------------------------------
+
+interface IndustryBenchmarkRow {
+  topic: string;
+  principle: string;
+  application_notes: string | null;
+  target_metric: string | null;
+  target_value: number | null;
+  source_note: string | null;
+}
+
+async function buildIndustryBenchmarksContext(): Promise<string> {
+  const { data, error } = await supabase
+    .from('industry_benchmarks')
+    .select('topic, principle, application_notes, target_metric, target_value, source_note')
+    .order('topic')
+    .order('created_at');
+  if (error) throw new Error(error.message);
+
+  const rows = (data ?? []) as IndustryBenchmarkRow[];
+  if (rows.length === 0) {
+    return `INDUSTRY BENCHMARK NOTES: (none curated yet — the owner hasn't added any reference notes, so you have no industry comparison context to draw on right now. Don't invent typical/standard industry figures if asked — say plainly this isn't available yet.)`;
+  }
+
+  const byTopic = new Map<string, IndustryBenchmarkRow[]>();
+  for (const row of rows) {
+    const list = byTopic.get(row.topic) ?? [];
+    list.push(row);
+    byTopic.set(row.topic, list);
+  }
+
+  const sections = Array.from(byTopic.entries()).map(([topic, entries]) => {
+    const lines = entries.map((e) => {
+      const parts = [`Principle: ${e.principle}.`];
+      if (e.application_notes) parts.push(`Owner's own application notes: ${e.application_notes}.`);
+      if (e.target_metric) parts.push(`Target metric "${e.target_metric}"${e.target_value !== null ? ` = ${e.target_value}` : ''}.`);
+      if (e.source_note) parts.push(`Source: ${e.source_note}.`);
+      return `- ${parts.join(' ')}`;
+    });
+    return `${topic}:\n${lines.join('\n')}`;
+  });
+
+  return `INDUSTRY BENCHMARK NOTES (the owner's own paraphrased reference notes, curated manually — not independently verified external fact. Use only for comparative context when it's genuinely relevant to the question, e.g. "your retention is X%, and your own benchmark note on retention says Y%" — always attribute it as the owner's own note, never present it as established industry consensus, and never state a benchmark figure beyond what's listed below):
+
+${sections.join('\n\n')}`;
+}
+
+// ---------------------------------------------------------------------
 // System prompt assembly
 // ---------------------------------------------------------------------
 
@@ -557,6 +628,7 @@ function buildSystemPrompt(
   marketing: string,
   clientRetention: string,
   stylistProfitability: string,
+  industryBenchmarks: string,
 ): string {
   const openSection = memory.openItems.length > 0 ? memory.openItems.map(formatMemoryItem).join('\n') : '(none currently open)';
   const inProgressSection =
@@ -568,7 +640,7 @@ function buildSystemPrompt(
 
 CRITICAL GUARDRAIL: Never state a number, statistic, or fact about the salon that isn't explicitly given to you below. If asked something you don't have real data for, say so plainly — name what you don't have — rather than estimating, guessing, or inventing a plausible-sounding figure. Every factual claim you make must trace back to the data in this prompt.
 
-SCOPE — what you currently have access to: the static salon profile (stylist roster, service catalog and pricing, recent product costs, the target margin used in profitability calculations), marketing performance (blended CAC and average order value trends), client retention signals (colour top-up and lapse risk, as aggregate counts only — you are never given individual client names, by design), stylist profitability (real per-stylist revenue/utilization/AOV — never their wage or product cost figures, which stay owner-only within the app itself), and the current to-do list.
+SCOPE — what you currently have access to: the static salon profile (stylist roster, service catalog and pricing, recent product costs, the target margin used in profitability calculations), marketing performance (blended CAC and average order value trends), client retention signals (colour top-up and lapse risk, as aggregate counts only — you are never given individual client names, by design), stylist profitability (real per-stylist revenue/utilization/AOV — never their wage or product cost figures, which stay owner-only within the app itself), the current to-do list, and the owner's own curated industry benchmark notes (comparative reference material only, when any exist — see that section's own framing below for how to use it).
 
 You do NOT have: a real-time booking calendar, SEO/search performance, stock/inventory levels, staffing vacancy data, ad campaign conversion data (not tracked yet), retail conversion rates (depends on a selection the owner hasn't set anywhere persistent yet), or the salon's physical location. If asked about any of that, say plainly that it isn't available to you rather than guessing. You are also never given any individual client's name or identity — if asked to name specific clients, explain that this assistant only receives aggregate counts, not client identities.
 
@@ -579,6 +651,8 @@ ${marketing}
 ${clientRetention}
 
 ${stylistProfitability}
+
+${industryBenchmarks}
 
 CURRENT TO-DO LIST STATE:
 
@@ -692,19 +766,21 @@ Deno.serve(async (req) => {
   let marketing: string;
   let clientRetention: string;
   let stylistProfitability: string;
+  let industryBenchmarks: string;
   try {
-    [memory, staticProfile, marketing, clientRetention, stylistProfitability] = await Promise.all([
+    [memory, staticProfile, marketing, clientRetention, stylistProfitability, industryBenchmarks] = await Promise.all([
       buildOperationalMemory(),
       buildStaticSalonProfile(),
       buildMarketingContext(),
       buildClientRetentionContext(),
       buildStylistProfitabilityContext(),
+      buildIndustryBenchmarksContext(),
     ]);
   } catch (err) {
     return jsonResponse({ ok: false, error: err instanceof Error ? err.message : 'Failed to load salon context' }, 500);
   }
 
-  const systemPrompt = buildSystemPrompt(memory, staticProfile, marketing, clientRetention, stylistProfitability);
+  const systemPrompt = buildSystemPrompt(memory, staticProfile, marketing, clientRetention, stylistProfitability, industryBenchmarks);
   const result = await callOpenAI(systemPrompt, history, body.message);
 
   if (!result.ok) return jsonResponse({ ok: false, error: result.error }, 502);

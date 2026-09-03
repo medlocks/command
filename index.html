@@ -3,9 +3,18 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <meta name="theme-color" content="#5b1a5e" />
+    <meta name="theme-color" content="#5b21b6" />
     <link rel="icon" type="image/svg+xml" href="/icon.svg" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <!-- iOS-specific standalone "Add to Home Screen" tags — the standard
+         `display: standalone` in the web manifest below covers Android
+         Chrome, but iOS Safari has historically needed these explicit
+         legacy tags too for a real full-screen launch (no Safari chrome),
+         a custom status bar, and a short home-screen label instead of the
+         full <title>. -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="MedLocks" />
     <title>MedLocks Command Centre</title>
   </head>
   <body>

@@ -69,3 +69,15 @@ export function syncMetaAdsNow(): Promise<AdSpendWriteResult> {
 export function submitManualAdSpend(input: { platform: 'meta' | 'google'; date: string; spendAmount: number }): Promise<AdSpendWriteResult> {
   return callFunction({ action: 'manual', ...input });
 }
+
+/**
+ * Writes a batch of already-aggregated daily totals from a CSV export
+ * (see `./meta/adSpendCsv.ts`) — the standing backup path for whenever the
+ * live token breaks again. Always written with `source: 'csv_import'`
+ * server-side, the lowest precedence: `v_ad_spend_daily_effective` ignores
+ * these rows for any day that already has a `meta_api` or `manual` row, so
+ * uploading a CSV can never override or double-count real synced data.
+ */
+export function importAdSpendCsv(input: { platform: 'meta' | 'google'; rows: { date: string; amount: number }[] }): Promise<AdSpendWriteResult> {
+  return callFunction({ action: 'csv_import', ...input });
+}

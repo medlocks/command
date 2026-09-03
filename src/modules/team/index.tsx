@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Button, Card, DateRangePicker, DivergingBarChart, type DateRangePreset } from '@/shared';
+import { Button, Card, DateRangePicker, DivergingBarChart, SkeletonStatRow, type DateRangePreset } from '@/shared';
 import type { DateRange } from '@/shared/types/warehouse';
 import {
   fetchStylistProfitability,
@@ -332,11 +332,7 @@ export function TeamPage() {
 
       {roster.length > 0 && <RosterManagement roster={roster} onChanged={load} />}
 
-      {result === null && (
-        <Card>
-          <p className="text-sm text-[var(--color-ink-muted)]">Loading…</p>
-        </Card>
-      )}
+      {result === null && <SkeletonStatRow count={3} />}
 
       {result && !result.ok && (
         <Card>

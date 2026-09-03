@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router';
-import { Button, Card } from '@/shared';
+import { Button, Card, SkeletonRows } from '@/shared';
 import {
   fetchStockState,
   type StockOpenFlag,
@@ -253,11 +253,7 @@ export function StockPage() {
         </p>
       </header>
 
-      {result === null && (
-        <Card>
-          <p className="text-sm text-[var(--color-ink-muted)]">Loading…</p>
-        </Card>
-      )}
+      {result === null && <SkeletonRows count={3} />}
 
       {result && !result.ok && (
         <Card>

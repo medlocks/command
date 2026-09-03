@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Card } from '@/shared';
+import { Card, SkeletonStatRow } from '@/shared';
 import { HeadlineMetrics } from './components/HeadlineMetrics';
 import { TodoList } from './components/TodoList';
 import { IndicatorPanel } from './components/IndicatorPanel';
@@ -158,6 +158,7 @@ export function HomePage() {
           <p className="text-sm text-[var(--color-critical)]">Couldn't load headline metrics: {metricsError}</p>
         </Card>
       )}
+      {metricsLoading && <SkeletonStatRow count={4} />}
       {!metricsLoading && !metricsError && <HeadlineMetrics metrics={metrics} />}
     </div>
   );

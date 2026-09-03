@@ -4,7 +4,6 @@ export * from './stylists';
 export * from './productCosts';
 export * from './serviceCategories';
 export * from './services';
-export * from './adSpend';
 export * from './recommendations';
 export * from './chatMemory';
 export * from './importBatches';

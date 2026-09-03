@@ -91,7 +91,18 @@ export default function App() {
                 'linear-gradient(160deg, var(--color-gradient-start) 0%, var(--color-gradient-mid) 45%, var(--color-gradient-end) 100%)',
             }}
           >
-            <main className="flex-1 overflow-y-auto">
+            {/* Top safe-area inset (added 2 Sep 2026) — `viewport-fit=cover` plus
+                the iOS `black-translucent` status-bar style (index.html) let
+                the app draw full-bleed under the notch/Dynamic Island/status
+                bar once installed as a standalone home-screen app, which is
+                exactly what makes that look "native" — but it means this app
+                is now responsible for pushing its own content back down
+                below that area, the same way `NavBar` below already does for
+                the bottom safe area. `env()` resolves to 0 on any device
+                without a notch, so this is safe unconditionally; the extra
+                12px on top is real breathing room, not just the strict
+                minimum needed to clear the status bar. */}
+            <main className="flex-1 overflow-y-auto pt-[calc(env(safe-area-inset-top)+12px)]">
               <Routes>
                 <Route path="/" element={<HomePage />} />
                 <Route path="/clients" element={<ClientsPage />} />

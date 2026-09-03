@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Card, CategoryBadge, UrgencyBadge } from '@/shared';
+import { Card, CategoryBadge, Skeleton, UrgencyBadge } from '@/shared';
 import { formatImpact, type RankedRecommendation } from '@/modules/insight-engine';
 import { useRecommendationOverrides } from '@/modules/recommendations/RecommendationOverridesProvider';
 import type { ImpactConfidence, RecommendationStatus } from '@/shared/types/warehouse';
@@ -256,9 +256,18 @@ export function TodoList() {
 
   if ((isLoading || isSyncing) && mergedItems.length === 0) {
     return (
-      <Card className="text-center">
-        <p className="text-sm text-[var(--color-ink-secondary)]">Loading the to-do list…</p>
-      </Card>
+      <div className="space-y-3">
+        {Array.from({ length: 3 }, (_, i) => (
+          <Card key={i} className="space-y-2">
+            <div className="flex items-center gap-2">
+              <Skeleton className="h-4 w-16 rounded-full" />
+              <Skeleton className="h-4 w-20 rounded-full" />
+            </div>
+            <Skeleton className="h-4 w-3/4" />
+            <Skeleton className="h-3 w-1/2" />
+          </Card>
+        ))}
+      </div>
     );
   }
 

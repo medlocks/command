@@ -89,14 +89,37 @@
   }
 }
 
+/* Skeleton loading sweep (polish pass, 2 Sep 2026) — a moving highlight
+   band across a static base tone, not a flat pulse. Replaces plain
+   "Loading…" text everywhere; this is the difference between a loading
+   state that looks considered and one that looks like a placeholder. */
+@keyframes shimmerSweep {
+  from {
+    background-position: -400px 0;
+  }
+  to {
+    background-position: 400px 0;
+  }
+}
+
 @theme {
   --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
 
   /* ---- Brand ---- */
-  --color-page: #f4eef8; /* flat fallback — the handful of non-page-background consumers (input fill, hover state, a pill) that need a plain colour, not a gradient */
-  --color-gradient-start: #fbe4ee; /* pink */
-  --color-gradient-mid: #eae3f7; /* lavender */
-  --color-gradient-end: #dde6f9; /* blue */
+  /* TEST PALETTE (2 Sep 2026) — violet/purple direction, swapped in on
+     request to compare against the aubergine/rose-berry brand above.
+     Scoped deliberately: only page-gradient + accent/chart-primary tokens
+     changed here — ink/surface/border/grid untouched, so this stays an
+     easy, low-risk swap to revert rather than touching every text-contrast
+     pairing in the app. Re-validated the same way as the original brand
+     refresh: `dataviz` skill's CVD validator against the real categorical
+     chart set (no new adjacent-pair conflict, including against the
+     existing purple cat-5) + WCAG contrast computed directly (accent-strong
+     8.98:1 vs white, gradient-end 5.38:1 white-text-on-fill, both clear AA). */
+  --color-page: #f1eafc; /* flat fallback — the handful of non-page-background consumers (input fill, hover state, a pill) that need a plain colour, not a gradient */
+  --color-gradient-start: #f5f0ff; /* near-white violet */
+  --color-gradient-mid: #ece1fb; /* soft lavender-violet */
+  --color-gradient-end: #e0d4f7; /* deeper soft violet */
   --color-surface: #ffffff; /* Card.tsx applies translucency + blur on top of this — see file header */
   --color-surface-raised: #ffffff;
   --color-ink: #2f2a42; /* cool dark plum-charcoal, replacing the old warm charcoal — 13.7:1 vs white */
@@ -106,17 +129,17 @@
   --color-grid: rgba(47, 42, 66, 0.1);
   --color-baseline: rgba(47, 42, 66, 0.28);
 
-  /* Aubergine → deep rose-berry — validated against the categorical set below, see file header for why these hexes specifically. */
-  --color-accent: #9d174d; /* CTAs, active nav, key metric highlights, hero emphasis — 7.9:1 vs white */
-  --color-accent-strong: #5b1a5e; /* darker step for text-on-light (12:1 contrast) — links, pressed states */
-  --color-accent-soft: #fce4ee; /* pale wash for active-pill backgrounds, subtle highlight chips */
-  --color-accent-gradient-start: #5b1a5e;
-  --color-accent-gradient-end: #9d174d;
+  /* Violet-800 → purple-600 — validated against the categorical set below (no new adjacent-pair conflict, incl. vs the existing purple cat-5). */
+  --color-accent: #6d28d9; /* CTAs, active nav, key metric highlights, hero emphasis — 7.10:1 vs white */
+  --color-accent-strong: #5b21b6; /* darker step for text-on-light (8.98:1 contrast) — links, pressed states */
+  --color-accent-soft: #f2e9fd; /* pale wash for active-pill backgrounds, subtle highlight chips */
+  --color-accent-gradient-start: #5b21b6;
+  --color-accent-gradient-end: #9333ea;
   /* The brand hue used as the *single* colour in single-series charts/sparklines
      (dataviz skill: "sequential = one hue") — kept as its own token, distinct
      from categorical slot 1 below, so brand emphasis and category identity
      never fight each other in the same chart. */
-  --color-chart-primary: #9d174d;
+  --color-chart-primary: #6d28d9;
 
   /* ---- Data-viz palette (validated separately — CVD-checked, unrelated to brand) ----
      Re-derived in full (not just the 3 colors originally flagged) — running the
@@ -163,10 +186,11 @@
 @media (prefers-color-scheme: dark) {
   :root:where(:not([data-theme='light'])) {
     color-scheme: dark;
-    --color-page: #1d1b24;
-    --color-gradient-start: #241f2c;
-    --color-gradient-mid: #1e2130;
-    --color-gradient-end: #1a2436;
+    /* TEST PALETTE (2 Sep 2026) — see the light-mode block's own comment for the full reasoning; only page-gradient + accent/chart-primary tokens changed, everything else untouched. */
+    --color-page: #17131f;
+    --color-gradient-start: #221c35;
+    --color-gradient-mid: #1c1830;
+    --color-gradient-end: #181428;
     --color-surface: #262430;
     --color-surface-raised: #2d2b38;
     --color-ink: #f0ecf5;
@@ -176,13 +200,13 @@
     --color-grid: rgba(240, 236, 245, 0.1);
     --color-baseline: rgba(240, 236, 245, 0.3);
 
-    /* Lighter aubergine/rose-berry steps for text-on-dark — validated the same way as light mode against this same dark-mode categorical set (cat-5/11/12 below): --color-accent-strong 8.3:1 vs page, --color-accent 6.4:1, both clear CVD/normal-vision separation from cat-5/11/12. */
-    --color-accent: #d87fc9;
-    --color-accent-strong: #e29fd6;
-    --color-accent-soft: rgba(216, 127, 201, 0.16);
-    --color-accent-gradient-start: #e29fd6;
-    --color-accent-gradient-end: #d87fc9;
-    --color-chart-primary: #d87fc9;
+    /* Violet-300/400 steps for text-on-dark — checked against this dark-mode categorical set (no new adjacent-pair conflict introduced); WCAG contrast computed directly since a lone UI/text color is outside the categorical validator's own stated scope: accent-strong 9.90:1 vs page. */
+    --color-accent: #a78bfa;
+    --color-accent-strong: #c4b5fd;
+    --color-accent-soft: rgba(167, 139, 250, 0.16);
+    --color-accent-gradient-start: #c4b5fd;
+    --color-accent-gradient-end: #a78bfa;
+    --color-chart-primary: #a78bfa;
 
     --color-cat-1: #0541fd;
     --color-cat-2: #b32c00;
@@ -207,10 +231,11 @@
 
 :root[data-theme='dark'] {
   color-scheme: dark;
-  --color-page: #1d1b24;
-  --color-gradient-start: #241f2c;
-  --color-gradient-mid: #1e2130;
-  --color-gradient-end: #1a2436;
+  /* TEST PALETTE (2 Sep 2026) — see the light-mode block's own comment. */
+  --color-page: #17131f;
+  --color-gradient-start: #221c35;
+  --color-gradient-mid: #1c1830;
+  --color-gradient-end: #181428;
   --color-surface: #262430;
   --color-surface-raised: #2d2b38;
   --color-ink: #f0ecf5;
@@ -220,12 +245,12 @@
   --color-grid: rgba(240, 236, 245, 0.1);
   --color-baseline: rgba(240, 236, 245, 0.3);
 
-  --color-accent: #d87fc9;
-  --color-accent-strong: #e29fd6;
-  --color-accent-soft: rgba(216, 127, 201, 0.16);
-  --color-accent-gradient-start: #e29fd6;
-  --color-accent-gradient-end: #d87fc9;
-  --color-chart-primary: #d87fc9;
+  --color-accent: #a78bfa;
+  --color-accent-strong: #c4b5fd;
+  --color-accent-soft: rgba(167, 139, 250, 0.16);
+  --color-accent-gradient-start: #c4b5fd;
+  --color-accent-gradient-end: #a78bfa;
+  --color-chart-primary: #a78bfa;
 
   --color-cat-1: #0541fd;
   --color-cat-2: #b32c00;

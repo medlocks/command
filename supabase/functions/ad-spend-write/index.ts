@@ -57,7 +57,13 @@ interface SyncMetaBody {
   action: 'sync_meta';
 }
 
-type RequestBody = ManualEntryBody | SyncMetaBody;
+interface CsvImportBody {
+  action: 'csv_import';
+  platform: 'meta' | 'google';
+  rows: { date: string; amount: number }[];
+}
+
+type RequestBody = ManualEntryBody | SyncMetaBody | CsvImportBody;
 
 function isValidDateString(value: unknown): value is string {
   return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(new Date(value).getTime());
@@ -85,6 +91,7 @@ async function handleManualEntry(body: ManualEntryBody): Promise<Response> {
       campaign_name: 'Manual entry',
       spend_date: body.date,
       spend_amount: body.spendAmount,
+      source: 'manual',
       synced_at: new Date().toISOString(),
     },
     { onConflict: 'platform,campaign_id,spend_date' },
@@ -159,6 +166,55 @@ async function handleSyncMeta(): Promise<Response> {
     campaign_name: row.campaign_name,
     spend_date: row.date_start,
     spend_amount: Number(row.spend) || 0,
+    source: 'meta_api',
+    synced_at: new Date().toISOString(),
+  }));
+
+  const { error } = await supabase.from('ad_spend_daily').upsert(rows, { onConflict: 'platform,campaign_id,spend_date' });
+  if (error) return jsonResponse({ ok: false, error: error.message }, 500);
+
+  return jsonResponse({ ok: true, rowsWritten: rows.length });
+}
+
+/**
+ * CSV-import fallback (added 3 Sep 2026) — a standing backup path, not a
+ * one-off, for whenever the live Meta token breaks again (it already has
+ * once, over an app-review/Business-verification gate that can't be
+ * fixed from inside this app). The browser parses the owner's real
+ * Ads Manager day-breakdown export and aggregates it to one total spend
+ * per real calendar day — never a per-campaign figure, since that export
+ * carries no real campaign ID, only ad/ad-set names, and inventing one
+ * would misrepresent what's actually known. `source: 'csv_import'` is
+ * always the lowest precedence — see `v_ad_spend_daily_effective`'s own
+ * comment for the full reasoning: any day the live sync (or a manual
+ * entry) already covers is left alone, never double-counted or
+ * overridden. `campaign_id: 'csv_import'` is the matching sentinel for
+ * the upsert key, so re-uploading the same export corrects existing rows
+ * instead of duplicating them, same as `manual`/`sync_meta` above.
+ */
+async function handleCsvImport(body: CsvImportBody): Promise<Response> {
+  if (body.platform !== 'meta' && body.platform !== 'google') {
+    return jsonResponse({ ok: false, error: 'platform must be "meta" or "google"' }, 400);
+  }
+  if (!Array.isArray(body.rows) || body.rows.length === 0) {
+    return jsonResponse({ ok: false, error: 'rows must be a non-empty array' }, 400);
+  }
+  for (const row of body.rows) {
+    if (!isValidDateString(row.date)) {
+      return jsonResponse({ ok: false, error: `Invalid date: ${JSON.stringify(row.date)}` }, 400);
+    }
+    if (typeof row.amount !== 'number' || !Number.isFinite(row.amount) || row.amount < 0) {
+      return jsonResponse({ ok: false, error: `Invalid amount for ${row.date}: must be a non-negative number` }, 400);
+    }
+  }
+
+  const rows = body.rows.map((row) => ({
+    platform: body.platform,
+    campaign_id: 'csv_import',
+    campaign_name: 'CSV import (aggregate)',
+    spend_date: row.date,
+    spend_amount: row.amount,
+    source: 'csv_import',
     synced_at: new Date().toISOString(),
   }));
 
@@ -190,5 +246,6 @@ Deno.serve(async (req) => {
 
   if (body.action === 'manual') return handleManualEntry(body);
   if (body.action === 'sync_meta') return handleSyncMeta();
+  if (body.action === 'csv_import') return handleCsvImport(body);
   return jsonResponse({ ok: false, error: 'Unknown action' }, 400);
 });

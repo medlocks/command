@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Card, LineChart, type LineChartPoint } from '@/shared';
+import { Card, LineChart, Skeleton, type LineChartPoint } from '@/shared';
 import {
   fetchRetailConversionSalonWide,
   fetchSalesTypeValues,
@@ -102,7 +102,7 @@ export function RealRetailConversionCard() {
         </div>
       )}
 
-      {result === null && <p className="text-sm text-[var(--color-ink-muted)]">Loading…</p>}
+      {result === null && <Skeleton className="h-40 w-full" />}
       {result && !result.ok && <p className="text-sm text-[var(--color-critical)]">{result.error}</p>}
       {result?.ok && selectedTypes.size === 0 && (
         <p className="text-sm text-[var(--color-warning)]">Select at least one type above to compute conversion.</p>

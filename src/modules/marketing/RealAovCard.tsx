@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Card, DateRangePicker, LineChart, type DateRangePreset, type LineChartPoint } from '@/shared';
+import { Card, DateRangePicker, LineChart, Skeleton, type DateRangePreset, type LineChartPoint } from '@/shared';
 import type { DateRange } from '@/shared/types/warehouse';
 import { fetchAovMonthly, type AovMonthlyResult } from '@/modules/data-ingestion/warehouseReadClient';
 
@@ -62,7 +62,7 @@ export function RealAovCard() {
         </div>
         <DateRangePicker presets={AOV_RANGE_PRESETS} value={range} onChange={setRange} />
       </div>
-      {result === null && <p className="text-sm text-[var(--color-ink-muted)]">Loading…</p>}
+      {result === null && <Skeleton className="h-40 w-full" />}
       {result && !result.ok && <p className="text-sm text-[var(--color-critical)]">{result.error}</p>}
       {result?.ok && !hasAnyData && (
         <p className="text-sm text-[var(--color-ink-secondary)]">No real completed appointments in this window yet — nothing to chart.</p>

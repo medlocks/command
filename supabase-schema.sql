@@ -485,6 +485,14 @@ create table public.ad_spend_daily (
   spend_amount numeric(10,2) not null default 0,
   platform_reported_conversions integer default 0, -- labelled clearly as platform-reported per GDPR/data-integrity note (Section 8)
   synced_at timestamptz not null default now(),
+  -- Real fallback path (added 3 Sep 2026) — the live Meta token has already
+  -- broken once (an app-review/Business-verification gate, not something
+  -- fixable in-app), so a manual CSV-export upload exists as a standing
+  -- backup, not a one-off. 'csv_import' rows are always the lowest
+  -- precedence — see `v_ad_spend_daily_effective` below, which every real
+  -- consumer of ad spend reads through instead of this raw table, so the
+  -- "live sync always wins" rule only has to be correct in one place.
+  source text not null default 'meta_api', -- 'meta_api' | 'manual' | 'csv_import'
   unique (platform, campaign_id, spend_date)
 );
 
@@ -776,11 +784,39 @@ create policy "users_read_own_profile" on public.profiles
 -- CAC read artificially low. Decided 20 Aug 2026 (superseding this view's
 -- original added_date-based definition, written before first_appointment_date
 -- existed as a confirmed, separate field).
+-- Source-precedence resolution (added 3 Sep 2026) — real per-day spend,
+-- picking whichever source actually matters: any real 'meta_api' or
+-- 'manual' row for a (date, platform) always wins outright; a
+-- 'csv_import' row only counts when NEITHER of those exists for that same
+-- (date, platform), i.e. csv_import only ever fills a genuine gap, never
+-- overrides or double-counts a day the live sync (or a deliberate manual
+-- correction) already covers. Every real consumer of ad spend — this CAC
+-- view, the trailing-30-day figure, Chat's marketing context — reads
+-- through this view, not the raw table, so this is the only place the
+-- precedence rule is expressed.
+create or replace view public.v_ad_spend_daily_effective as
+with priority_days as (
+  select distinct spend_date, platform
+  from public.ad_spend_daily
+  where source != 'csv_import'
+)
+select
+  a.spend_date,
+  a.platform,
+  sum(a.spend_amount) as effective_spend
+from public.ad_spend_daily a
+where a.source != 'csv_import'
+   or not exists (
+     select 1 from priority_days p
+     where p.spend_date = a.spend_date and p.platform = a.platform
+   )
+group by a.spend_date, a.platform;
+
 create or replace view public.v_blended_cac_monthly as
 with monthly_spend as (
   select date_trunc('month', spend_date)::date as month,
-         sum(spend_amount) as total_spend
-  from public.ad_spend_daily
+         sum(effective_spend) as total_spend
+  from public.v_ad_spend_daily_effective
   group by 1
 ),
 monthly_new_clients as (

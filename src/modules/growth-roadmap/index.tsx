@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Card } from '@/shared';
+import { Card, Skeleton } from '@/shared';
 import type { GrowthRoadmap, RoadmapStage, StageStatus } from '@/modules/insight-engine';
 import { buildRealGrowthRoadmap } from './realGrowthRoadmap';
 
@@ -135,9 +135,19 @@ export function GrowthRoadmapPage() {
       )}
 
       {!error && !roadmap && (
-        <Card>
-          <p className="text-sm text-[var(--color-ink-secondary)]">Loading…</p>
-        </Card>
+        <div className="space-y-3">
+          {Array.from({ length: 4 }, (_, i) => (
+            <Card key={i} className="space-y-3">
+              <div className="flex items-center justify-between">
+                <Skeleton className="h-3.5 w-40" />
+                <Skeleton className="h-5 w-20 rounded-full" />
+              </div>
+              <Skeleton className="h-7 w-24" />
+              <Skeleton className="h-2 w-full rounded-full" />
+              <Skeleton className="h-3 w-full" />
+            </Card>
+          ))}
+        </div>
       )}
 
       {unmatchedAppointmentCount > 0 && (

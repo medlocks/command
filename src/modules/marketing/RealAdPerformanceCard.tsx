@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Card, LineChart, type LineChartPoint } from '@/shared';
+import { Card, LineChart, Skeleton, type LineChartPoint } from '@/shared';
 import { fetchAdPerformance, type AdPerformanceResult } from '@/modules/data-ingestion/warehouseReadClient';
 
 const currency = new Intl.NumberFormat('en-GB', { style: 'currency', currency: 'GBP', maximumFractionDigits: 0 });
@@ -45,7 +45,7 @@ export function RealAdPerformanceCard() {
         rather than just incomplete.
       </p>
 
-      {result === null && <p className="text-sm text-[var(--color-ink-muted)]">Loading…</p>}
+      {result === null && <Skeleton className="h-40 w-full" />}
       {result && !result.ok && <p className="text-sm text-[var(--color-critical)]">{result.error}</p>}
       {result?.ok && (result.campaigns ?? []).length === 0 && (
         <p className="text-sm text-[var(--color-ink-secondary)]">No real ad spend recorded yet.</p>

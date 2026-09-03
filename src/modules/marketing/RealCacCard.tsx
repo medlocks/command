@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Card, DateRangePicker, LineChart, type DateRangePreset, type LineChartPoint } from '@/shared';
+import { Card, DateRangePicker, LineChart, Skeleton, type DateRangePreset, type LineChartPoint } from '@/shared';
 import type { DateRange } from '@/shared/types/warehouse';
 import {
   fetchBlendedCac30d,
@@ -73,7 +73,7 @@ export function RealCacCard() {
         </div>
         <DateRangePicker presets={CAC_RANGE_PRESETS} value={range} onChange={setRange} />
       </div>
-      {monthly === null && trailing30 === null && <p className="text-sm text-[var(--color-ink-muted)]">Loading…</p>}
+      {monthly === null && trailing30 === null && <Skeleton className="h-40 w-full" />}
       {monthly && !monthly.ok && <p className="text-sm text-[var(--color-critical)]">{monthly.error}</p>}
       {monthly?.ok && !hasAnyData && (
         <p className="text-sm text-[var(--color-ink-secondary)]">

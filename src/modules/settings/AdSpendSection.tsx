@@ -1,6 +1,13 @@
-import { useState } from 'react';
-import { Button } from '@/shared';
-import { submitManualAdSpend, syncMetaAdsNow, type AdSpendWriteResult } from '@/modules/data-ingestion/ads/adSpendWriteClient';
+import { useRef, useState } from 'react';
+import { Button, Card } from '@/shared';
+import {
+  submitManualAdSpend,
+  syncMetaAdsNow,
+  importAdSpendCsv,
+  type AdSpendWriteResult,
+} from '@/modules/data-ingestion/ads/adSpendWriteClient';
+import { parseMetaAdSpendCsvFile, type DailyAdSpendRow } from '@/modules/data-ingestion/ads/meta/adSpendCsv';
+import type { ImportResult } from '@/modules/data-ingestion/adapters/types';
 
 const INPUT_CLASSES =
   'w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-ink)] focus:border-[var(--color-accent)] focus:outline-none';
@@ -36,8 +43,49 @@ export function AdSpendSection() {
   const [syncResult, setSyncResult] = useState<AdSpendWriteResult | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
 
+  const csvFileInputRef = useRef<HTMLInputElement>(null);
+  const [csvPlatform, setCsvPlatform] = useState<'meta' | 'google'>('meta');
+  const [csvFileName, setCsvFileName] = useState<string | null>(null);
+  const [csvParsed, setCsvParsed] = useState<ImportResult<DailyAdSpendRow> | null>(null);
+  const [isParsingCsv, setIsParsingCsv] = useState(false);
+  const [csvResult, setCsvResult] = useState<AdSpendWriteResult | null>(null);
+  const [isImportingCsv, setIsImportingCsv] = useState(false);
+
   const amount = Number(spendAmount);
   const canSubmitManual = date !== '' && spendAmount !== '' && Number.isFinite(amount) && amount >= 0;
+
+  async function handleCsvFileChange(event: React.ChangeEvent<HTMLInputElement>) {
+    const nextFile = event.target.files?.[0] ?? null;
+    setCsvResult(null);
+    setCsvParsed(null);
+    setCsvFileName(nextFile?.name ?? null);
+    if (!nextFile) return;
+    setIsParsingCsv(true);
+    try {
+      setCsvParsed(await parseMetaAdSpendCsvFile(nextFile));
+    } finally {
+      setIsParsingCsv(false);
+    }
+  }
+
+  function resetCsvForm() {
+    setCsvFileName(null);
+    setCsvParsed(null);
+    if (csvFileInputRef.current) csvFileInputRef.current.value = '';
+  }
+
+  async function handleCsvImport() {
+    if (!csvParsed || csvParsed.records.length === 0) return;
+    setIsImportingCsv(true);
+    setCsvResult(null);
+    try {
+      const result = await importAdSpendCsv({ platform: csvPlatform, rows: csvParsed.records });
+      setCsvResult(result);
+      if (result.ok) resetCsvForm();
+    } finally {
+      setIsImportingCsv(false);
+    }
+  }
 
   async function handleManualSubmit(event: React.FormEvent) {
     event.preventDefault();
@@ -82,6 +130,97 @@ export function AdSpendSection() {
         {syncResult && (
           <div className="mt-2">
             <ResultMessage result={syncResult} />
+          </div>
+        )}
+      </div>
+
+      <div className="border-t border-[var(--color-border)] pt-4">
+        <h2 className="mb-1 text-sm font-semibold uppercase tracking-wide text-[var(--color-ink-muted)]">
+          Import spend CSV (backup)
+        </h2>
+        <p className="mb-2 text-sm text-[var(--color-ink-secondary)]">
+          If the live sync above ever breaks (an expired token, an app-review block), export a daily breakdown from
+          Ads Manager — Breakdown → By Time → Day — and upload it here to fill the gap. Live sync always wins: any
+          day the API has already synced is left exactly as it is, so uploading the same period twice, or a period
+          that overlaps real synced days, is always safe.
+        </p>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="mb-1 block text-xs font-medium text-[var(--color-ink-muted)]">Platform</label>
+            <select
+              value={csvPlatform}
+              onChange={(event) => setCsvPlatform(event.target.value as 'meta' | 'google')}
+              className={INPUT_CLASSES}
+            >
+              <option value="meta">Meta</option>
+              <option value="google">Google</option>
+            </select>
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-[var(--color-ink-muted)]">CSV file</label>
+            <input
+              ref={csvFileInputRef}
+              type="file"
+              accept=".csv,text/csv"
+              onChange={(event) => void handleCsvFileChange(event)}
+              className="block w-full text-sm text-[var(--color-ink-secondary)] file:mr-3 file:rounded-lg file:border file:border-[var(--color-border)] file:bg-[var(--color-surface)] file:px-3 file:py-2 file:text-sm file:font-medium file:text-[var(--color-ink)] hover:file:bg-[var(--color-grid)]"
+            />
+          </div>
+        </div>
+
+        {isParsingCsv && <p className="mt-2 text-sm text-[var(--color-ink-muted)]">Parsing {csvFileName}…</p>}
+
+        {csvParsed && (
+          <div className="mt-3 space-y-3">
+            <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-[var(--color-ink-secondary)]">
+              <span>{csvParsed.rowCount} row(s) in file</span>
+              <span className="font-medium text-[var(--color-ink)]">{csvParsed.records.length} day(s) aggregated</span>
+              {csvParsed.records.length > 0 && (
+                <span>
+                  {csvParsed.records[0]!.date} → {csvParsed.records[csvParsed.records.length - 1]!.date}
+                </span>
+              )}
+              {csvParsed.records.length > 0 && (
+                <span className="font-medium text-[var(--color-ink)]">
+                  £{csvParsed.records.reduce((sum, row) => sum + row.amount, 0).toFixed(2)} total
+                </span>
+              )}
+              {csvParsed.validationErrors.length > 0 && (
+                <span className="font-medium text-[var(--color-warning)]">
+                  {csvParsed.validationErrors.length} flagged
+                </span>
+              )}
+            </div>
+
+            {csvParsed.validationErrors.length > 0 && (
+              <Card className="max-h-40 overflow-y-auto !p-3">
+                <ul className="space-y-1 text-xs text-[var(--color-ink-secondary)]">
+                  {csvParsed.validationErrors.slice(0, 50).map((error, i) => (
+                    <li key={i}>
+                      {error.row > 0 ? `Row ${error.row} — ` : ''}
+                      <span className="font-medium text-[var(--color-ink)]">{error.field}:</span> {error.message}
+                    </li>
+                  ))}
+                </ul>
+              </Card>
+            )}
+
+            {csvParsed.records.length > 0 && (
+              <div className="flex gap-2">
+                <Button className="flex-1" disabled={isImportingCsv} onClick={() => void handleCsvImport()}>
+                  {isImportingCsv ? 'Importing…' : `Import ${csvParsed.records.length} day(s)`}
+                </Button>
+                <Button variant="secondary" onClick={resetCsvForm}>
+                  Discard
+                </Button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {csvResult && (
+          <div className="mt-2">
+            <ResultMessage result={csvResult} />
           </div>
         )}
       </div>

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Button } from '@/shared';
+import { Button, Skeleton } from '@/shared';
 import { fetchBlendedCac30d, type BlendedCacResult } from '@/modules/data-ingestion/warehouseReadClient';
 
 /**
@@ -44,7 +44,7 @@ export function BlendedCacCard() {
         </Button>
       </div>
 
-      {isLoading && !result && <p className="mt-1 text-sm text-[var(--color-ink-secondary)]">Loading…</p>}
+      {isLoading && !result && <Skeleton className="mt-2 h-6 w-32" />}
 
       {result && !result.ok && (
         <p className="mt-1 text-sm text-[var(--color-critical)]">{result.error ?? 'Something went wrong.'}</p>

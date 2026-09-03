@@ -26,8 +26,8 @@ export default defineConfig({
         // Matches the gradient brand refresh (22 Aug 2026) — theme_color is
         // --color-accent-strong (light), background_color is --color-page
         // (light), the two tokens a PWA install/splash screen actually uses.
-        theme_color: '#5b1a5e',
-        background_color: '#f4eef8',
+        theme_color: '#5b21b6',
+        background_color: '#f1eafc',
         display: 'standalone',
         icons: [
           { src: 'icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any' },

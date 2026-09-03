@@ -189,14 +189,19 @@ async function handleBlendedCac30d(range: unknown): Promise<Response> {
     windowEndStr = windowEnd.toISOString().slice(0, 10);
   }
 
+  // Reads through v_ad_spend_daily_effective (added 3 Sep 2026), not the raw
+  // table — it resolves per-day/per-platform source precedence (meta_api /
+  // manual always beat csv_import for the same day) in one place, so this
+  // query never double-counts a day that has both a live-synced row and a
+  // CSV-import backfill row.
   const { data: spendRows, error: spendError } = await supabase
-    .from('ad_spend_daily')
-    .select('spend_amount')
+    .from('v_ad_spend_daily_effective')
+    .select('effective_spend')
     .gte('spend_date', windowStartStr)
     .lte('spend_date', windowEndStr);
   if (spendError) return jsonResponse({ ok: false, error: spendError.message }, 500);
 
-  const totalSpend = (spendRows ?? []).reduce((sum, row) => sum + Number(row.spend_amount), 0);
+  const totalSpend = (spendRows ?? []).reduce((sum, row) => sum + Number(row.effective_spend), 0);
 
   const { data: clientRows, error: clientError } = await supabase
     .from('clients')

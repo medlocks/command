@@ -3,6 +3,7 @@ export * from './ui/Button';
 export * from './ui/Card';
 export * from './ui/Sparkline';
 export * from './ui/DateRangePicker';
+export * from './ui/Skeleton';
 export * from './ui/StatTile';
 export * from './ui/Badge';
 export * from './ui/charts/LineChart';

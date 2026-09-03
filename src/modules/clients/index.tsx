@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Button, Card } from '@/shared';
+import { Button, Card, Skeleton, SkeletonRows } from '@/shared';
 import {
   fetchClientAppointmentHistory,
   fetchClientInsightLists,
@@ -36,7 +36,14 @@ function ClientHistoryRows({ clientName }: { clientName: string }) {
     };
   }, [clientName]);
 
-  if (result === null) return <p className="mt-3 text-xs text-[var(--color-ink-muted)]">Loading…</p>;
+  if (result === null)
+    return (
+      <div className="mt-3 space-y-1.5">
+        <Skeleton className="h-3.5 w-2/3" />
+        <Skeleton className="h-3.5 w-1/2" />
+        <Skeleton className="h-3.5 w-3/5" />
+      </div>
+    );
   if (!result.ok) return <p className="mt-3 text-xs text-[var(--color-critical)]">{result.error}</p>;
 
   const appointments = result.appointments ?? [];
@@ -271,11 +278,7 @@ export function ClientsPage() {
         <h1 className="text-xl font-semibold tracking-tight text-[var(--color-ink)]">Clients</h1>
       </header>
 
-      {result === null && (
-        <Card>
-          <p className="text-sm text-[var(--color-ink-muted)]">Loading…</p>
-        </Card>
-      )}
+      {result === null && <SkeletonRows count={4} />}
 
       {result && !result.ok && (
         <Card>
