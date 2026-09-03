@@ -791,6 +791,8 @@ function ProductSeedForm() {
   const [reorderThreshold, setReorderThreshold] = useState('');
   const [currentEstimatedStock, setCurrentEstimatedStock] = useState('');
   const [supplier, setSupplier] = useState('');
+  const [supplierEmail, setSupplierEmail] = useState('');
+  const [supplierPhone, setSupplierPhone] = useState('');
   const [approxCostPerUnit, setApproxCostPerUnit] = useState('');
   const [isCritical, setIsCritical] = useState(false);
   const [result, setResult] = useState<WarehouseWriteResult | null>(null);
@@ -810,6 +812,8 @@ function ProductSeedForm() {
         reorderThreshold: reorderThreshold !== '' ? Number(reorderThreshold) : null,
         currentEstimatedStock: currentEstimatedStock !== '' ? Number(currentEstimatedStock) : null,
         supplier: supplier.trim() || null,
+        supplierEmail: supplierEmail.trim() || null,
+        supplierPhone: supplierPhone.trim() || null,
         approxCostPerUnit: approxCostPerUnit !== '' ? Number(approxCostPerUnit) : null,
         isCritical,
       });
@@ -820,6 +824,8 @@ function ProductSeedForm() {
         setReorderThreshold('');
         setCurrentEstimatedStock('');
         setSupplier('');
+        setSupplierEmail('');
+        setSupplierPhone('');
         setApproxCostPerUnit('');
         setIsCritical(false);
       }
@@ -852,6 +858,31 @@ function ProductSeedForm() {
             <input value={supplier} onChange={(event) => setSupplier(event.target.value)} className={INPUT_CLASSES} />
           </div>
         </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="mb-1 block text-xs font-medium text-[var(--color-ink-muted)]">Supplier email (optional)</label>
+            <input
+              type="email"
+              value={supplierEmail}
+              onChange={(event) => setSupplierEmail(event.target.value)}
+              placeholder="orders@supplier.com"
+              className={INPUT_CLASSES}
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-[var(--color-ink-muted)]">Supplier WhatsApp (optional)</label>
+            <input
+              value={supplierPhone}
+              onChange={(event) => setSupplierPhone(event.target.value)}
+              placeholder="447700900000"
+              className={INPUT_CLASSES}
+            />
+          </div>
+        </div>
+        <p className="text-xs text-[var(--color-ink-muted)]">
+          Either of these turns "draft reorder message" on Stock into a direct link, pre-filled and ready to send —
+          without one, it still writes the message, just as copy-to-clipboard.
+        </p>
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className="mb-1 block text-xs font-medium text-[var(--color-ink-muted)]">Reorder at (optional)</label>

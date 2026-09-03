@@ -323,6 +323,8 @@ export interface StockProduct {
   reorderThreshold: number | null;
   currentEstimatedStock: number | null;
   supplier: string | null;
+  supplierEmail: string | null;
+  supplierPhone: string | null;
   approxCostPerUnit: number | null;
   isCritical: boolean;
 }

@@ -206,6 +206,12 @@ create table public.products (
   reorder_threshold numeric(10,2), -- quantity at which a reorder is recommended
   current_estimated_stock numeric(10,2), -- manually updated periodic count, not real-time
   supplier text,
+  -- Added 3 Sep 2026, both optional — power the "draft reorder message"
+  -- one-tap action (a wa.me/mailto deep link pre-filled and ready to
+  -- send, not an auto-send): without either, the action still generates
+  -- the message text, just as a copy-to-clipboard instead of a live link.
+  supplier_email text,
+  supplier_phone text, -- E.164-ish digits, e.g. '447700900000' — wa.me needs no '+' or spaces
   approx_cost_per_unit numeric(10,2),
   is_critical boolean not null default false, -- flags service-blocking products for prioritization
   -- Soft-delete (added 30 Aug 2026) — mirrors stylists.employment_status:

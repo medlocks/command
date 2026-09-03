@@ -3,6 +3,7 @@ import { Card, SkeletonStatRow } from '@/shared';
 import { HeadlineMetrics } from './components/HeadlineMetrics';
 import { TodoList } from './components/TodoList';
 import { IndicatorPanel } from './components/IndicatorPanel';
+import { DraftJobPostButton } from './DraftJobPostButton';
 import { buildRealTodoListCandidates } from './realTodoListInput';
 import { buildRealHeadlineMetrics } from './realHeadlineMetrics';
 import { buildRealHiringSignal } from './realHiringSignal';
@@ -150,6 +151,11 @@ export function HomePage() {
             </label>
           </div>
           <IndicatorPanel signals={[hiringSignal]} />
+          {hiringSignal.status === 'strong' && (
+            <div className="mt-2 flex justify-end">
+              <DraftJobPostButton signal={hiringSignal} />
+            </div>
+          )}
         </div>
       )}
 

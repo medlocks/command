@@ -215,6 +215,8 @@ export function commitProduct(payload: {
   reorderThreshold?: number | null;
   currentEstimatedStock?: number | null;
   supplier?: string | null;
+  supplierEmail?: string | null;
+  supplierPhone?: string | null;
   approxCostPerUnit?: number | null;
   isCritical?: boolean;
 }): Promise<WarehouseWriteResult> {
@@ -229,6 +231,8 @@ export function updateProduct(payload: {
   reorderThreshold?: number | null;
   currentEstimatedStock?: number | null;
   supplier?: string | null;
+  supplierEmail?: string | null;
+  supplierPhone?: string | null;
   approxCostPerUnit?: number | null;
   isCritical?: boolean;
   isActive?: boolean;

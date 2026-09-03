@@ -928,6 +928,8 @@ interface ProductCommitPayload {
   reorderThreshold?: number | null;
   currentEstimatedStock?: number | null;
   supplier?: string | null;
+  supplierEmail?: string | null;
+  supplierPhone?: string | null;
   approxCostPerUnit?: number | null;
   isCritical?: boolean;
 }
@@ -954,6 +956,8 @@ async function handleProductCommit(payload: unknown): Promise<Response> {
     reorder_threshold: p.reorderThreshold ?? null,
     current_estimated_stock: p.currentEstimatedStock ?? null,
     supplier: p.supplier ?? null,
+    supplier_email: p.supplierEmail ?? null,
+    supplier_phone: p.supplierPhone ?? null,
     approx_cost_per_unit: p.approxCostPerUnit ?? null,
     is_critical: p.isCritical ?? false,
   });
@@ -969,6 +973,8 @@ interface ProductUpdatePayload {
   reorderThreshold?: number | null;
   currentEstimatedStock?: number | null;
   supplier?: string | null;
+  supplierEmail?: string | null;
+  supplierPhone?: string | null;
   approxCostPerUnit?: number | null;
   isCritical?: boolean;
   isActive?: boolean;
@@ -991,6 +997,8 @@ async function handleProductUpdate(payload: unknown): Promise<Response> {
   if (p.reorderThreshold !== undefined) fields.reorder_threshold = p.reorderThreshold;
   if (p.currentEstimatedStock !== undefined) fields.current_estimated_stock = p.currentEstimatedStock;
   if (p.supplier !== undefined) fields.supplier = p.supplier;
+  if (p.supplierEmail !== undefined) fields.supplier_email = p.supplierEmail;
+  if (p.supplierPhone !== undefined) fields.supplier_phone = p.supplierPhone;
   if (p.approxCostPerUnit !== undefined) fields.approx_cost_per_unit = p.approxCostPerUnit;
   if (p.isCritical !== undefined) fields.is_critical = p.isCritical;
   if (p.isActive !== undefined) fields.is_active = p.isActive;

@@ -9,6 +9,7 @@ import {
   type StockStateResult,
 } from '@/modules/data-ingestion/warehouseReadClient';
 import { commitStockFlag, resolveStockFlag } from '@/modules/data-ingestion/warehouseWriteClient';
+import { DraftReorderButton, draftReorderMessage } from './DraftReorderButton';
 
 type StockFlagUrgency = 'low' | 'out';
 
@@ -32,13 +33,20 @@ function FlagCard({
   referenceDate,
   isResolving,
   onResolve,
+  supplier,
+  supplierEmail,
+  supplierPhone,
 }: {
   flag: StockOpenFlag;
   referenceDate: string;
   isResolving: boolean;
   onResolve: () => void;
+  supplier: string | null;
+  supplierEmail: string | null;
+  supplierPhone: string | null;
 }) {
   const meta = URGENCY_META[flag.urgency];
+  const reasonClause = flag.urgency === 'out' ? "we're completely out of" : "we're running low on";
 
   return (
     <Card className={`transition-all duration-200 ease-out ${isResolving ? 'scale-[0.98] opacity-0' : 'scale-100 opacity-100'}`}>
@@ -63,6 +71,14 @@ function FlagCard({
         <Button variant="secondary" className="shrink-0 !px-3 !py-1.5 text-xs" onClick={onResolve} disabled={isResolving}>
           Resolve
         </Button>
+      </div>
+      <div className="mt-3 flex justify-end">
+        <DraftReorderButton
+          productName={flag.productName}
+          supplierEmail={supplierEmail}
+          supplierPhone={supplierPhone}
+          message={draftReorderMessage(flag.productName, supplier, reasonClause)}
+        />
       </div>
     </Card>
   );
@@ -157,7 +173,22 @@ function NewFlagForm({
  * explicit "predicted" framing) since this is a projection from recent
  * booking pace, not something anyone actually observed on the shelf.
  */
-function ForecastCard({ rec }: { rec: StockReorderRecommendation }) {
+function ForecastCard({
+  rec,
+  supplier,
+  supplierEmail,
+  supplierPhone,
+}: {
+  rec: StockReorderRecommendation;
+  supplier: string | null;
+  supplierEmail: string | null;
+  supplierPhone: string | null;
+}) {
+  const reasonClause =
+    rec.daysUntilReorder === 0
+      ? "we're already at the reorder point for"
+      : `we're on track to need more (within about ${rec.daysUntilReorder} day${rec.daysUntilReorder === 1 ? '' : 's'})`;
+
   return (
     <Card className="border-dashed">
       <div className="flex items-start justify-between gap-3">
@@ -178,6 +209,14 @@ function ForecastCard({ rec }: { rec: StockReorderRecommendation }) {
             {rec.projectedAppointmentsAffectedIn14d === 1 ? '' : 's'} over the next 2 weeks use it.
           </p>
         </div>
+      </div>
+      <div className="mt-3 flex justify-end">
+        <DraftReorderButton
+          productName={rec.productName}
+          supplierEmail={supplierEmail}
+          supplierPhone={supplierPhone}
+          message={draftReorderMessage(rec.productName, supplier, reasonClause)}
+        />
       </div>
     </Card>
   );
@@ -220,6 +259,7 @@ export function StockPage() {
   const products = result?.products ?? [];
   const openFlags = result?.openFlags ?? [];
   const reorderRecommendations = result?.reorderRecommendations ?? [];
+  const productsById = new Map(products.map((p) => [p.id, p]));
 
   async function handleResolve(flagId: string) {
     setResolvingId(flagId);
@@ -286,15 +326,21 @@ export function StockPage() {
                 <p className="mt-1 text-xs text-[var(--color-ink-muted)]">No open flags right now.</p>
               </Card>
             ) : (
-              openFlags.map((flag) => (
-                <FlagCard
-                  key={flag.flagId}
-                  flag={flag}
-                  referenceDate={referenceDate}
-                  isResolving={resolvingId === flag.flagId}
-                  onResolve={() => void handleResolve(flag.flagId)}
-                />
-              ))
+              openFlags.map((flag) => {
+                const product = productsById.get(flag.productId);
+                return (
+                  <FlagCard
+                    key={flag.flagId}
+                    flag={flag}
+                    referenceDate={referenceDate}
+                    isResolving={resolvingId === flag.flagId}
+                    onResolve={() => void handleResolve(flag.flagId)}
+                    supplier={product?.supplier ?? null}
+                    supplierEmail={product?.supplierEmail ?? null}
+                    supplierPhone={product?.supplierPhone ?? null}
+                  />
+                );
+              })
             )}
           </div>
 
@@ -304,9 +350,18 @@ export function StockPage() {
                 Predicted to need reordering
               </h2>
               <div className="space-y-3">
-                {reorderRecommendations.map((rec) => (
-                  <ForecastCard key={rec.productId} rec={rec} />
-                ))}
+                {reorderRecommendations.map((rec) => {
+                  const product = productsById.get(rec.productId);
+                  return (
+                    <ForecastCard
+                      key={rec.productId}
+                      rec={rec}
+                      supplier={product?.supplier ?? null}
+                      supplierEmail={product?.supplierEmail ?? null}
+                      supplierPhone={product?.supplierPhone ?? null}
+                    />
+                  );
+                })}
               </div>
             </div>
           )}

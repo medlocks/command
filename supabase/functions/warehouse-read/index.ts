@@ -1090,7 +1090,7 @@ async function handleStockState(): Promise<Response> {
   ] = await Promise.all([
     supabase
       .from('products')
-      .select('id, name, unit, reorder_threshold, current_estimated_stock, supplier, approx_cost_per_unit, is_critical')
+      .select('id, name, unit, reorder_threshold, current_estimated_stock, supplier, supplier_email, supplier_phone, approx_cost_per_unit, is_critical')
       .eq('is_active', true)
       .order('name'),
     supabase.from('stock_flags').select('id, product_id, urgency, flagged_by, created_at').eq('status', 'open'),
@@ -1205,6 +1205,8 @@ async function handleStockState(): Promise<Response> {
       reorderThreshold: p.reorder_threshold,
       currentEstimatedStock: p.current_estimated_stock,
       supplier: p.supplier,
+      supplierEmail: p.supplier_email,
+      supplierPhone: p.supplier_phone,
       approxCostPerUnit: p.approx_cost_per_unit,
       isCritical: p.is_critical,
     })),

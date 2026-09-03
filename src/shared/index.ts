@@ -8,3 +8,4 @@ export * from './ui/StatTile';
 export * from './ui/Badge';
 export * from './ui/charts/LineChart';
 export * from './ui/charts/DivergingBarChart';
+export * from './useCopyToClipboard';
