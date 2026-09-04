@@ -58,6 +58,8 @@ const STOCK_CONSUMPTION_WINDOW_DAYS = 30;
 const DIGEST_REORDER_LEAD_DAYS = 7;
 /** Mirrors `realTodoListInput.ts`'s own significant-change threshold — kept in sync by hand, same as everywhere else this constant is duplicated across the real-data layer. */
 const SIGNIFICANT_CAC_CHANGE_THRESHOLD = 0.15;
+/** Own copy of `warehouse-read`'s `REAL_WORK_STATUSES` (added 4 Sep 2026) — Fresha's status field doesn't reliably get flipped to "Completed" (cash payments, pre-paid bookings, stylists who don't bother), so "New"/"Confirmed" count as real work too; "Cancelled"/"No Show" don't. */
+const REAL_WORK_STATUSES = ['Completed', 'New', 'Confirmed'];
 
 interface DigestStockFlag {
   productName: string;
@@ -91,7 +93,7 @@ async function gatherStockSignals(): Promise<{ flags: DigestStockFlag[]; reorder
     supabase
       .from('fresha_appointments')
       .select('service, scheduled_date')
-      .eq('status', 'Completed')
+      .in('status', REAL_WORK_STATUSES)
       .gte('scheduled_date', windowStart)
       .lte('scheduled_date', referenceDate),
   ]);

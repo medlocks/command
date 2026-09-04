@@ -91,6 +91,19 @@ const OPENAI_MODEL = 'gpt-5.6-terra';
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
+/**
+ * Which Fresha appointment statuses count as real, happened work (added 4
+ * Sep 2026) — own copy of `warehouse-read`'s `REAL_WORK_STATUSES` constant,
+ * same reasoning: Fresha's status field doesn't reliably get flipped to
+ * "Completed" (cash payments, pre-paid bookings, stylists who don't bother
+ * updating it), so a real past appointment can sit on "New"/"Confirmed"
+ * indefinitely. Both count as real work; "Cancelled"/"No Show" don't,
+ * since those genuinely didn't happen. Every query using this also bounds
+ * `scheduled_date` to no later than today — a future-dated "New"/
+ * "Confirmed" row is a real booking that hasn't happened yet.
+ */
+const REAL_WORK_STATUSES = ['Completed', 'New', 'Confirmed'];
+
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, content-type, x-app-secret',
@@ -346,7 +359,11 @@ async function buildClientRetentionContext(): Promise<string> {
   const today = new Date().toISOString().slice(0, 10);
 
   const [apptRes, clientsRes] = await Promise.all([
-    supabase.from('fresha_appointments').select('client_name, category, scheduled_date').eq('status', 'Completed'),
+    supabase
+      .from('fresha_appointments')
+      .select('client_name, category, scheduled_date')
+      .in('status', REAL_WORK_STATUSES)
+      .lte('scheduled_date', today),
     supabase.from('clients').select('id, full_name, profiling_opt_out').is('deleted_at', null),
   ]);
   if (apptRes.error) throw new Error(apptRes.error.message);
@@ -502,7 +519,7 @@ async function buildStylistProfitabilityContext(): Promise<string> {
     supabase
       .from('fresha_appointments')
       .select('team_member_name, net_sales, duration_minutes, scheduled_date')
-      .eq('status', 'Completed')
+      .in('status', REAL_WORK_STATUSES)
       .gte('scheduled_date', periodStart)
       .lte('scheduled_date', periodEnd),
     supabase.from('stylist_hours').select('stylist_id, hours_per_week, effective_from, effective_to'),

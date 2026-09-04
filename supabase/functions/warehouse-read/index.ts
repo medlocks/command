@@ -117,6 +117,11 @@
 //     self-contained": these two handlers live in the same file and would
 //     otherwise be a near-verbatim copy of real, non-trivial math, not the
 //     cross-function duplication this project usually accepts on purpose.
+//
+// Real-appointment status handling (added 4 Sep 2026) — every query below
+// that aggregates `fresha_appointments` now treats "New"/"Confirmed" as
+// real work too, not just "Completed" — see `REAL_WORK_STATUSES`' own doc
+// comment just below for the real discrepancy this fixes.
 
 import { createClient } from 'npm:@supabase/supabase-js@2';
 
@@ -128,6 +133,26 @@ const CAC_WINDOW_DAYS = 30;
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * Which Fresha appointment statuses count as real, happened work (added 4
+ * Sep 2026, per a real discrepancy the owner flagged: Fresha reported ~80%
+ * utilization, the app was showing ~24-39%). Root cause wasn't the
+ * capacity math — it was this status filter: Fresha's own status field
+ * doesn't reliably get flipped to "Completed" (cash payments, pre-paid
+ * bookings, and stylists who just don't bother updating it all leave a
+ * real, already-happened appointment sitting on "New" or "Confirmed"
+ * indefinitely). Checked against real data: 2,018 past-dated appointments
+ * (2,815 hours) were sitting non-"Completed" salon-wide — nearly as many
+ * hours as "Completed" itself. So "New"/"Confirmed" count as real work
+ * too everywhere appointments are read for revenue/hours/utilization;
+ * "Cancelled"/"No Show" are excluded correctly, since those genuinely
+ * didn't happen. Every query using this list also bounds `scheduled_date`
+ * to no later than today (even ones with their own period-end bound,
+ * belt-and-braces) — a *future*-dated "New"/"Confirmed" row is a real
+ * booking that hasn't happened yet, not extra past work to count.
+ */
+const REAL_WORK_STATUSES = ['Completed', 'New', 'Confirmed'];
 
 interface DateRange {
   start: string;
@@ -345,9 +370,14 @@ interface RetailConversionRequestBody {
 
 async function handleRetailConversionSalonWide(body: RetailConversionRequestBody): Promise<Response> {
   const retailTypeNames = new Set(Array.isArray(body.retailTypeNames) ? body.retailTypeNames : []);
+  const today = new Date().toISOString().slice(0, 10);
 
   const [{ data: appointments, error: apptError }, { data: typeSales, error: typeError }] = await Promise.all([
-    supabase.from('fresha_appointments').select('client_name, status, scheduled_date').eq('status', 'Completed'),
+    supabase
+      .from('fresha_appointments')
+      .select('client_name, status, scheduled_date')
+      .in('status', REAL_WORK_STATUSES)
+      .lte('scheduled_date', today),
     supabase.from('sales_summary_by_type').select('type, period_start, period_end, sales_qty'),
   ]);
   if (apptError) return jsonResponse({ ok: false, error: apptError.message }, 500);
@@ -478,7 +508,11 @@ async function handleClientInsightLists(): Promise<Response> {
     { data: clients, error: clientError },
     { data: dismissals, error: dismissalError },
   ] = await Promise.all([
-    supabase.from('fresha_appointments').select('client_name, category, scheduled_date').eq('status', 'Completed'),
+    supabase
+      .from('fresha_appointments')
+      .select('client_name, category, scheduled_date')
+      .in('status', REAL_WORK_STATUSES)
+      .lte('scheduled_date', today),
     supabase.from('clients').select('id, full_name, profiling_opt_out').is('deleted_at', null),
     supabase.from('client_insight_dismissals').select('client_id, insight_type, category, note, dismissed_at'),
   ]);
@@ -873,9 +907,10 @@ async function handleStylistProfitability(range: unknown): Promise<Response> {
     supabase
       .from('fresha_appointments')
       .select('team_member_name, net_sales, duration_minutes, scheduled_date')
-      .eq('status', 'Completed')
+      .in('status', REAL_WORK_STATUSES)
       .gte('scheduled_date', periodStart)
-      .lte('scheduled_date', periodEnd),
+      .lte('scheduled_date', periodEnd)
+      .lte('scheduled_date', new Date().toISOString().slice(0, 10)), // caller-supplied `range` could request a future end date — never count a not-yet-happened "New"/"Confirmed" row as real work
     supabase.from('stylist_wages').select('stylist_id, hourly_rate, effective_from, effective_to'),
     supabase.from('stylist_hours').select('stylist_id, hours_per_week, effective_from, effective_to'),
     supabase.from('product_costs').select('period_start, period_end, amount'),
@@ -956,9 +991,10 @@ async function handleStylistProfitabilityByPeriod(periods: unknown): Promise<Res
     supabase
       .from('fresha_appointments')
       .select('team_member_name, net_sales, duration_minutes, scheduled_date')
-      .eq('status', 'Completed')
+      .in('status', REAL_WORK_STATUSES)
       .gte('scheduled_date', overallStart)
-      .lte('scheduled_date', overallEnd),
+      .lte('scheduled_date', overallEnd)
+      .lte('scheduled_date', new Date().toISOString().slice(0, 10)), // never count a not-yet-happened "New"/"Confirmed" row as real work — see REAL_WORK_STATUSES' doc comment
     supabase.from('stylist_wages').select('stylist_id, hourly_rate, effective_from, effective_to'),
     supabase.from('stylist_hours').select('stylist_id, hours_per_week, effective_from, effective_to'),
     supabase.from('product_costs').select('period_start, period_end, amount'),
@@ -1044,7 +1080,7 @@ async function handleAveragePrices(): Promise<Response> {
   const { data, error } = await supabase
     .from('fresha_appointments')
     .select('category, net_sales')
-    .eq('status', 'Completed')
+    .in('status', REAL_WORK_STATUSES)
     .gte('scheduled_date', cutoffStr)
     .lte('scheduled_date', referenceDate);
   if (error) return jsonResponse({ ok: false, error: error.message }, 500);
@@ -1098,7 +1134,7 @@ async function handleStockState(): Promise<Response> {
     supabase
       .from('fresha_appointments')
       .select('service, scheduled_date')
-      .eq('status', 'Completed')
+      .in('status', REAL_WORK_STATUSES)
       .gte('scheduled_date', windowStart)
       .lte('scheduled_date', referenceDate),
   ]);
