@@ -15,6 +15,8 @@ export interface RoadmapStage {
   metricLabel: string;
   metricValue: string;
   targetLabel: string;
+  /** What to actually do next (added 4 Sep 2026) — `narrative` says where things stand; this says what closes the gap, computed from the same real numbers, never generic "keep growing" filler. Always populated, including for 'achieved'/'not-measurable' stages (a steady-state note or an honest "nothing to compute yet" respectively), so the UI can render it uniformly. */
+  nextStep: string;
 }
 
 export interface GrowthRoadmap {
@@ -64,6 +66,12 @@ export function buildRetentionStage(activeCount: number, atRiskCount: number): R
         ? 'on-track'
         : 'behind';
 
+  // How many of today's at-risk clients would need to stay engaged to clear
+  // the target, given the current active base — a concrete count, not a
+  // restated percentage, so there's an actual number of people to act on.
+  const maxAllowedAtRisk = Math.floor(activeCount * (1 - RETENTION_TARGET));
+  const clientsToConvert = Math.max(atRiskCount - maxAllowedAtRisk, 0);
+
   return {
     id: 'retention',
     title: 'Stabilize retention above target',
@@ -76,6 +84,10 @@ export function buildRetentionStage(activeCount: number, atRiskCount: number): R
       status === 'achieved'
         ? `${pct(retentionRate)} of active clients are not currently lapse-risk, clearing the ${pct(RETENTION_TARGET)} target — retention is stable enough to build on.`
         : `${pct(retentionRate)} of active clients are retained against a ${pct(RETENTION_TARGET)} target — ${atRiskCount} of ${activeCount} active clients are currently trending toward lapsing (see the Clients tab). Close this gap before layering on expansion pressure.`,
+    nextStep:
+      status === 'achieved'
+        ? `Retention is holding above target — the risk now is drifting back below it, so keep working the lapse-risk list as it comes up rather than only when this stage falls behind.`
+        : `Reach out personally to at least ${clientsToConvert} of the ${atRiskCount} at-risk clients (Clients tab) — converting just that many back into regular visits would clear the ${pct(RETENTION_TARGET)} target on its own.`,
   };
 }
 
@@ -107,6 +119,14 @@ export function buildProfitabilityStage(monthlyShares: readonly number[], window
   const status: StageStatus =
     monthsMeetingBar === windowMonths ? 'achieved' : latestShare >= STYLIST_SHARE_AT_TARGET_MARGIN ? 'on-track' : 'behind';
 
+  // The stage needs every month in the trailing window at bar, not just a
+  // count — so "how much longer" means the live streak counting backward
+  // from the most recent month, not the total months-at-bar tally (an
+  // earlier bad month still has to age out of the window either way).
+  let currentStreak = 0;
+  for (let i = monthlyShares.length - 1; i >= 0 && monthlyShares[i]! >= STYLIST_SHARE_AT_TARGET_MARGIN; i--) currentStreak++;
+  const moreMonthsNeeded = Math.max(windowMonths - currentStreak, 0);
+
   return {
     id: 'profitability',
     title: `Sustained per-stylist profitability, ${windowMonths}+ months`,
@@ -119,6 +139,12 @@ export function buildProfitabilityStage(monthlyShares: readonly number[], window
       monthsMeetingBar === windowMonths
         ? `At least ${pct(STYLIST_SHARE_AT_TARGET_MARGIN)} of stylists have cleared their target margin in each of the last ${windowMonths} months — profitability is consistent, not a one-off good month.`
         : `${monthsMeetingBar} of the last ${windowMonths} months had ${pct(STYLIST_SHARE_AT_TARGET_MARGIN)}+ of stylists at target margin (most recent month: ${pct(latestShare)} of stylists). See the Team tab for who's under target.`,
+    nextStep:
+      status === 'achieved'
+        ? `Profitability has held for the full window — worth watching whether it keeps holding as bookings grow, rather than treating this stage as done for good.`
+        : currentStreak === 0
+          ? `This month is below bar — start with whoever's furthest under target margin on the Team tab; getting them to target is what starts a new streak.`
+          : `${pct(STYLIST_SHARE_AT_TARGET_MARGIN)}+ of stylists have hit target margin for ${currentStreak} consecutive month${currentStreak === 1 ? '' : 's'} so far — keep it going for ${moreMonthsNeeded} more to complete this stage.`,
   };
 }
 
@@ -153,6 +179,13 @@ export function buildCapacityStage(monthlyUtilization: readonly number[], window
   const status: StageStatus =
     monthsMeetingBar === windowMonths ? 'achieved' : latestUtilization >= UTILIZATION_TARGET ? 'on-track' : 'behind';
 
+  // Same live-streak reasoning as the profitability stage — an early
+  // quieter month still has to age out of the window regardless of how
+  // many total months cleared the bar.
+  let currentStreak = 0;
+  for (let i = monthlyUtilization.length - 1; i >= 0 && monthlyUtilization[i]! >= UTILIZATION_TARGET; i--) currentStreak++;
+  const moreMonthsNeeded = Math.max(windowMonths - currentStreak, 0);
+
   return {
     id: 'capacity',
     title: 'Consistent capacity pressure',
@@ -162,6 +195,12 @@ export function buildCapacityStage(monthlyUtilization: readonly number[], window
     metricValue: pct(latestUtilization),
     targetLabel: `${pct(UTILIZATION_TARGET)}+ sustained for ${windowMonths} months`,
     narrative: `Average stylist utilization is ${pct(latestUtilization)}, sustained ≥${pct(UTILIZATION_TARGET)} in ${monthsMeetingBar} of the last ${windowMonths} months. There's no real waitlist/booking-availability data source yet (Section 5.6's own scoping note) — utilization is the closest available signal, not a substitute for actually tracking turned-away bookings.`,
+    nextStep:
+      status === 'achieved'
+        ? `Capacity pressure has held for the full window — this is exactly the sustained signal the Hiring Signal watches for; check Home to see whether it's flagged a hiring case yet.`
+        : currentStreak === 0
+          ? `This month's utilization is below ${pct(UTILIZATION_TARGET)} — capacity pressure has eased for now, so this stage isn't the bottleneck to chase this month.`
+          : `Utilization has held at ${pct(UTILIZATION_TARGET)}+ for ${currentStreak} consecutive month${currentStreak === 1 ? '' : 's'} — ${moreMonthsNeeded} more would complete this stage, and would also be worth a look at the Hiring Signal on Home.`,
   };
 }
 
@@ -196,6 +235,8 @@ export function computeSystemizationStage(): RoadmapStage {
     targetLabel: 'Manual owner assessment',
     narrative:
       'Nothing in the current warehouse or schema measures this — it depends on the operational playbook (Section 3.4) and documented processes that don\'t exist as structured data yet. Treat this stage as a manual judgment call, not a computed one, until that changes.',
+    nextStep:
+      'There\'s no real number to compute here yet, so no data-driven next step either — start documenting the actual playbook (who covers bookings, stock, and payroll when you\'re not there) rather than waiting for this to become measurable on its own.',
   };
 }
 

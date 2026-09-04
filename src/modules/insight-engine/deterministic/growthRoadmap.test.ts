@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildGrowthRoadmap } from './growthRoadmap';
+import { buildGrowthRoadmap, buildRetentionStage, buildProfitabilityStage, buildCapacityStage } from './growthRoadmap';
 import type { Appointment, Client, Stylist } from '@/shared/types/warehouse';
 
 function client(id: string, overrides: Partial<Client> = {}): Client {
@@ -126,5 +126,41 @@ describe('buildGrowthRoadmap', () => {
     });
     // No appointments at all -> profitability/utilization stages read as 'behind' (0% at target).
     expect(roadmap.overallStatus).not.toBe('ready');
+  });
+});
+
+describe('nextStep (added 4 Sep 2026 — turns the diagnostic reading into an actionable one)', () => {
+  it('retention: names a concrete count of at-risk clients to convert, not just the percentage', () => {
+    // 100 active, 30 at-risk, 85% target -> at most 15 can stay at-risk, so 15 need converting.
+    const stage = buildRetentionStage(100, 30);
+    expect(stage.status).toBe('behind');
+    expect(stage.nextStep).toContain('15');
+    expect(stage.nextStep).toContain('30');
+  });
+
+  it('retention: achieved gets a maintenance note, not a conversion count', () => {
+    const stage = buildRetentionStage(100, 5);
+    expect(stage.status).toBe('achieved');
+    expect(stage.nextStep).not.toContain('Reach out');
+  });
+
+  it('profitability: counts the live streak from the most recent month backward, not total months at bar', () => {
+    // Oldest to newest: fails, then two consecutive passes -> streak is 2, not 2-out-of-3 read as "any 2".
+    const stage = buildProfitabilityStage([0.5, 0.8, 0.9]);
+    expect(stage.status).toBe('on-track');
+    expect(stage.nextStep).toContain('2 consecutive month');
+    expect(stage.nextStep).toContain('1 more');
+  });
+
+  it('profitability: a live streak of zero points at fixing this month, not counting months', () => {
+    const stage = buildProfitabilityStage([0.9, 0.8, 0.5]);
+    expect(stage.status).toBe('behind');
+    expect(stage.nextStep).toMatch(/below bar/i);
+  });
+
+  it('capacity: achieved nextStep points at the Hiring Signal', () => {
+    const stage = buildCapacityStage([0.8, 0.8, 0.8]);
+    expect(stage.status).toBe('achieved');
+    expect(stage.nextStep).toMatch(/Hiring Signal/);
   });
 });

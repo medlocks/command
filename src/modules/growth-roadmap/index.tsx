@@ -65,6 +65,11 @@ function StageCard({ stage, index }: { stage: RoadmapStage; index: number }) {
       </div>
 
       <p className="mt-3 text-sm text-[var(--color-ink-secondary)]">{stage.narrative}</p>
+
+      <div className="mt-3 rounded-lg border-l-2 pl-3 py-1" style={{ borderColor: meta.color }}>
+        <p className="text-[11px] font-semibold tracking-wide text-[var(--color-ink-muted)] uppercase">Next step</p>
+        <p className="mt-0.5 text-sm text-[var(--color-ink)]">{stage.nextStep}</p>
+      </div>
     </Card>
   );
 }
