@@ -15,6 +15,8 @@ export interface ServiceProfitability {
 
 export interface UnderpricedServiceFlag {
   rawServiceName: string;
+  /** Set only by the real cutover (added 4 Sep 2026), which computes this per (service, stylist) pair from real realized pricing rather than one salon-wide list price — null/undefined here in the mock path, which has no per-stylist breakdown. */
+  stylistName?: string | null;
   profitPerChairHour: number;
   salonMedianProfitPerChairHour: number;
   /** profitPerChairHour − salonMedianProfitPerChairHour — always negative for a flagged service. */

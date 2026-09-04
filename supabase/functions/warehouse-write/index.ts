@@ -470,8 +470,9 @@ const VALID_SERVICE_CATEGORIES = new Set(['colour', 'cut', 'chemical_treatment',
 
 interface ServiceCommitPayload {
   rawServiceName: string;
-  price: number;
-  durationMinutes: number;
+  /** Optional as of 4 Sep 2026 — pricing analysis uses real realized averages from appointments now, not a manually-typed price/duration. Kept as an optional manual override for a service with no real bookings yet. */
+  price?: number | null;
+  durationMinutes?: number | null;
   estimatedProductCost?: number | null;
   isEstimate?: boolean;
   category: string;
@@ -482,10 +483,14 @@ async function handleServiceCommit(payload: unknown): Promise<Response> {
   if (!p || typeof p.rawServiceName !== 'string' || !p.rawServiceName) {
     return jsonResponse({ ok: false, error: 'rawServiceName is required' }, 400);
   }
-  if (typeof p.price !== 'number' || !Number.isFinite(p.price) || p.price < 0) {
+  if (p.price !== undefined && p.price !== null && (typeof p.price !== 'number' || !Number.isFinite(p.price) || p.price < 0)) {
     return jsonResponse({ ok: false, error: 'price must be a non-negative number' }, 400);
   }
-  if (typeof p.durationMinutes !== 'number' || !Number.isInteger(p.durationMinutes) || p.durationMinutes <= 0) {
+  if (
+    p.durationMinutes !== undefined &&
+    p.durationMinutes !== null &&
+    (typeof p.durationMinutes !== 'number' || !Number.isInteger(p.durationMinutes) || p.durationMinutes <= 0)
+  ) {
     return jsonResponse({ ok: false, error: 'durationMinutes must be a positive integer' }, 400);
   }
   if (typeof p.category !== 'string' || !VALID_SERVICE_CATEGORIES.has(p.category)) {
@@ -503,8 +508,8 @@ async function handleServiceCommit(payload: unknown): Promise<Response> {
   const { error: svcError } = await supabase.from('services').upsert(
     {
       raw_service_name: p.rawServiceName,
-      price: p.price,
-      duration_minutes: p.durationMinutes,
+      price: p.price ?? null,
+      duration_minutes: p.durationMinutes ?? null,
       estimated_product_cost: p.estimatedProductCost ?? null,
       is_estimate: p.isEstimate ?? true,
       updated_at: new Date().toISOString(),
@@ -650,6 +655,7 @@ interface StylistUpdatePayload {
   name?: string;
   startDate?: string | null;
   employmentStatus?: string;
+  isProfitShare?: boolean;
 }
 
 /**
@@ -685,8 +691,11 @@ async function handleStylistUpdate(payload: unknown): Promise<Response> {
     }
     fields.employment_status = p.employmentStatus;
   }
+  if (p.isProfitShare !== undefined) {
+    fields.is_profit_share = p.isProfitShare;
+  }
   if (Object.keys(fields).length === 0) {
-    return jsonResponse({ ok: false, error: 'Nothing to update — provide name, startDate, and/or employmentStatus' }, 400);
+    return jsonResponse({ ok: false, error: 'Nothing to update — provide name, startDate, employmentStatus, and/or isProfitShare' }, 400);
   }
 
   const { error } = await supabase.from('stylists').update(fields).eq('id', p.id);

@@ -128,12 +128,16 @@ function RosterRow({ stylist, onSaved }: { stylist: StylistRosterEntry; onSaved:
   const [name, setName] = useState(stylist.name);
   const [startDate, setStartDate] = useState(stylist.startDate ?? '');
   const [employmentStatus, setEmploymentStatus] = useState(stylist.employmentStatus);
+  const [isProfitShare, setIsProfitShare] = useState(stylist.isProfitShare);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const normalizedStartDate = startDate || null;
   const isDirty =
-    name.trim() !== stylist.name || normalizedStartDate !== stylist.startDate || employmentStatus !== stylist.employmentStatus;
+    name.trim() !== stylist.name ||
+    normalizedStartDate !== stylist.startDate ||
+    employmentStatus !== stylist.employmentStatus ||
+    isProfitShare !== stylist.isProfitShare;
 
   async function handleSave() {
     if (!name.trim()) return;
@@ -145,6 +149,7 @@ function RosterRow({ stylist, onSaved }: { stylist: StylistRosterEntry; onSaved:
         name: name.trim() !== stylist.name ? name.trim() : undefined,
         startDate: normalizedStartDate !== stylist.startDate ? normalizedStartDate : undefined,
         employmentStatus: employmentStatus !== stylist.employmentStatus ? employmentStatus : undefined,
+        isProfitShare: isProfitShare !== stylist.isProfitShare ? isProfitShare : undefined,
       });
       if (res.ok) {
         onSaved();
@@ -182,6 +187,14 @@ function RosterRow({ stylist, onSaved }: { stylist: StylistRosterEntry; onSaved:
           ))}
         </select>
       </td>
+      <td className="px-3 py-2 text-center">
+        <input
+          type="checkbox"
+          checked={isProfitShare}
+          onChange={(event) => setIsProfitShare(event.target.checked)}
+          title="Partner with no fixed wage — excludes them from wage-cost-based comparisons"
+        />
+      </td>
       <td className="px-3 py-2 text-right align-top">
         <Button type="button" disabled={!isDirty || !name.trim() || isSaving} onClick={() => void handleSave()}>
           {isSaving ? 'Saving…' : 'Save'}
@@ -216,6 +229,7 @@ function RosterManagement({ roster, onChanged }: { roster: StylistRosterEntry[];
             <th className="px-4 py-2 font-medium">Name</th>
             <th className="px-3 py-2 font-medium">Start date</th>
             <th className="px-3 py-2 font-medium">Status</th>
+            <th className="px-3 py-2 text-center font-medium">Partner</th>
             <th className="px-3 py-2 font-medium"></th>
           </tr>
         </thead>
@@ -312,7 +326,9 @@ export function TeamPage() {
 
   const stylists = result?.stylists ?? [];
   const sortedByUtilization = [...stylists].sort((a, b) => b.utilizationPct - a.utilizationPct);
-  const sortedByMargin = [...stylists].sort((a, b) => b.deltaToTargetPct - a.deltaToTargetPct);
+  // Excludes profit-share partners — the wage-cost-based target-margin concept doesn't apply to them
+  // (added 4 Sep 2026), so including one here would show a misleading outlier "beating target" bar.
+  const sortedByMargin = stylists.filter((s) => !s.isProfitShare).sort((a, b) => b.deltaToTargetPct - a.deltaToTargetPct);
   const unmatchedCount = result?.unmatchedAppointmentCount ?? 0;
   const roster = rosterResult?.stylists ?? [];
 
@@ -428,13 +444,20 @@ export function TeamPage() {
                   <tbody>
                     {stylists.map((s) => (
                       <tr key={s.stylistId} className="border-b border-[var(--color-border)] last:border-b-0">
-                        <td className="px-4 py-3 font-medium text-[var(--color-ink)]">{s.name}</td>
+                        <td className="px-4 py-3 font-medium text-[var(--color-ink)]">
+                          {s.name}
+                          {s.isProfitShare && (
+                            <span className="ml-1 block text-[10px] font-normal text-[var(--color-accent-strong)]">partner — no fixed wage</span>
+                          )}
+                        </td>
                         <td className="px-3 py-3 tabular-nums text-[var(--color-ink-secondary)]">{currency.format(s.revenue)}</td>
-                        <td className="px-3 py-3 tabular-nums text-[var(--color-ink-secondary)]">{currency.format(s.wageCost)}</td>
+                        <td className="px-3 py-3 tabular-nums text-[var(--color-ink-secondary)]">
+                          {s.isProfitShare ? 'n/a' : currency.format(s.wageCost)}
+                        </td>
                         <td className="px-3 py-3 tabular-nums text-[var(--color-ink-secondary)]">{currency.format(s.productCost)}</td>
                         <td
                           className="px-3 py-3 tabular-nums font-medium"
-                          style={{ color: s.isUnderperforming ? 'var(--color-critical)' : 'var(--color-good-text)' }}
+                          style={{ color: s.isProfitShare ? 'var(--color-ink)' : s.isUnderperforming ? 'var(--color-critical)' : 'var(--color-good-text)' }}
                         >
                           {currency.format(s.margin)}
                         </td>

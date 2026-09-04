@@ -288,6 +288,38 @@ describe('buildRankedTodoList', () => {
     expect(item?.effort).toBe('low');
   });
 
+  it('includes the stylist name in the title and id when a flag is per-stylist (real per-stylist pricing, added 4 Sep 2026)', () => {
+    const underpricedServiceFlags: UnderpricedServiceFlag[] = [
+      {
+        rawServiceName: 'Blow Dry',
+        stylistName: 'Chloe Swain',
+        profitPerChairHour: 2,
+        salonMedianProfitPerChairHour: 25,
+        deltaVsMedian: -23,
+        suggestedPriceIncrease: 18,
+        isLowConfidence: true,
+        bookingCount90d: 15,
+      },
+      {
+        rawServiceName: 'Blow Dry',
+        stylistName: 'Elise Waddington',
+        profitPerChairHour: 30,
+        salonMedianProfitPerChairHour: 25,
+        deltaVsMedian: 5,
+        suggestedPriceIncrease: 0,
+        isLowConfidence: true,
+        bookingCount90d: 20,
+      },
+    ];
+    const list = buildRankedTodoList({ ...baseInput, referenceDate: '2026-02-28', underpricedServiceFlags });
+    const item = list.find((i) => i.category === 'service-profitability' && i.title.includes('Chloe Swain'));
+    expect(item).toBeDefined();
+    expect(item?.title).toContain('Blow Dry (Chloe Swain)');
+    // Same rawServiceName, different stylist — ids must not collide.
+    const ids = list.filter((i) => i.category === 'service-profitability').map((i) => i.id);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
   it('flags low-confidence underpriced services as directional in the detail text', () => {
     const underpricedServiceFlags: UnderpricedServiceFlag[] = [
       {

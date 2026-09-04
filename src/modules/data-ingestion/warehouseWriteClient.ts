@@ -109,10 +109,11 @@ export function removeStylistLeave(payload: { id: string }): Promise<WarehouseWr
   return callFunction({ entity: 'stylist_leave', action: 'remove', payload });
 }
 
+/** Price/duration removed as required fields 4 Sep 2026 — pricing analysis now uses real realized averages from appointments, per stylist, not a manually-typed price. Kept as optional manual overrides for a service with no real bookings yet. */
 export function commitService(payload: {
   rawServiceName: string;
-  price: number;
-  durationMinutes: number;
+  price?: number | null;
+  durationMinutes?: number | null;
   estimatedProductCost?: number | null;
   isEstimate: boolean;
   category: 'colour' | 'cut' | 'chemical_treatment' | 'retail' | 'other';
@@ -154,6 +155,8 @@ export function updateStylist(payload: {
   name?: string;
   startDate?: string | null;
   employmentStatus?: 'active' | 'inactive' | 'apprentice';
+  /** True for a partner paid from profit share, not a wage (added 4 Sep 2026) — her wage cost is computed as 0 everywhere, and her figures are excluded from wage-cost-based comparisons (target margin, underpriced-pricing flags) since they aren't on the same basis. */
+  isProfitShare?: boolean;
 }): Promise<WarehouseWriteResult> {
   return callFunction({ entity: 'stylists', action: 'update', payload });
 }

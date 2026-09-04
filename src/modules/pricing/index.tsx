@@ -4,10 +4,20 @@ import { Card, SkeletonRows } from '@/shared';
 import {
   fetchServiceProfitability,
   type ServiceProfitabilityResult,
+  type ServiceProfitabilityRow,
   type ServiceUnderpricedFlag,
 } from '@/modules/data-ingestion/warehouseReadClient';
 
 const currency = new Intl.NumberFormat('en-GB', { style: 'currency', currency: 'GBP', maximumFractionDigits: 0 });
+
+function lineKey(s: Pick<ServiceProfitabilityRow, 'rawServiceName' | 'stylistId'>): string {
+  return `${s.rawServiceName}::${s.stylistId ?? 'none'}`;
+}
+
+/** Matches a table row to its underpriced flag (if any) — flags are keyed by name since that's what the Edge Function returns, not by id. */
+function flagKey(s: Pick<ServiceProfitabilityRow, 'rawServiceName' | 'stylistName'>): string {
+  return `${s.rawServiceName}::${s.stylistName ?? 'none'}`;
+}
 
 function UnderpricedFlagCard({ flag }: { flag: ServiceUnderpricedFlag }) {
   return (
@@ -16,7 +26,7 @@ function UnderpricedFlagCard({ flag }: { flag: ServiceUnderpricedFlag }) {
         <span className="text-xs font-semibold text-[var(--color-warning)]">Underpriced</span>
         {flag.isLowConfidence && <span className="text-[10px] text-[var(--color-ink-muted)]">Low confidence — cost is a rough estimate</span>}
       </div>
-      <p className="mt-1 text-sm font-semibold text-[var(--color-ink)]">{flag.rawServiceName}</p>
+      <p className="mt-1 text-sm font-semibold text-[var(--color-ink)]">{flag.label}</p>
       <p className="mt-0.5 text-xs text-[var(--color-ink-muted)]">
         {currency.format(flag.profitPerChairHour)}/chair-hour vs. a {currency.format(flag.salonMedianProfitPerChairHour)} salon median · {flag.bookingCount90d} bookings
         in the last 90 days
@@ -29,15 +39,22 @@ function UnderpricedFlagCard({ flag }: { flag: ServiceUnderpricedFlag }) {
 }
 
 /**
- * Pricing analysis (Requirements Section 5.11, added 4 Sep 2026) — real
- * cutover of an algorithm (profit-per-chair-hour, underpriced-service
- * flags, portfolio-mix check) that existed fully built and tested since
- * before this round, but was never wired to real data or shown anywhere.
- * Deliberately not in the main 7-tab nav, same reasoning and pattern as
- * `StockPage` — reachable via a link from Settings instead. The same
- * underpriced-service/portfolio-mix candidates also now surface on
- * Home's to-do list (`realTodoListInput.ts`); this page is the full
- * detail view behind that.
+ * Pricing analysis (Requirements Section 5.11, added 4 Sep 2026, moved to
+ * real per-stylist realized pricing the same day) — real cutover of an
+ * algorithm (profit-per-chair-hour, underpriced-service flags, portfolio-
+ * mix check) that existed fully built and tested before this round, but
+ * was never wired to real data or shown anywhere. Price and duration are
+ * real averages of what's actually been charged and how long it actually
+ * took, per stylist — not a number typed into a catalog — so real
+ * experience-based pricing tiers (a senior stylist genuinely charging
+ * more for the same service) show up with zero extra data entry, and the
+ * table populates itself from real booking history alone. Only product
+ * cost stays manual (Settings → Manual Data → "Service catalog") — Fresha
+ * has no cost data anywhere. Deliberately not in the main 7-tab nav, same
+ * reasoning and pattern as `StockPage` — reachable via a link from
+ * Settings instead. The same underpriced-service/portfolio-mix
+ * candidates also now surface on Home's to-do list
+ * (`realTodoListInput.ts`); this page is the full detail view behind that.
  */
 export function PricingPage() {
   const [result, setResult] = useState<ServiceProfitabilityResult | null>(null);
@@ -53,7 +70,7 @@ export function PricingPage() {
   }, []);
 
   const services = result?.services ?? [];
-  const underpricedByName = new Map((result?.underpricedFlags ?? []).map((f) => [f.rawServiceName, f]));
+  const underpricedByKey = new Map((result?.underpricedFlags ?? []).map((f) => [`${f.rawServiceName}::${f.stylistName ?? 'none'}`, f]));
   const sortedServices = [...services].sort((a, b) => a.profitPerChairHour - b.profitPerChairHour);
 
   return (
@@ -64,9 +81,10 @@ export function PricingPage() {
         </Link>
         <h1 className="mt-1 text-xl font-semibold tracking-tight text-[var(--color-ink)]">Pricing analysis</h1>
         <p className="mt-1 text-sm text-[var(--color-ink-secondary)]">
-          Profit per chair-hour for every service — price minus estimated product cost minus allocated stylist time,
-          divided by duration. Flags services sitting well below the salon's own median, with enough recent bookings
-          to be worth acting on.
+          Profit per chair-hour, per stylist — the real average of what's actually been charged and how long it
+          actually took, minus estimated product cost and that stylist's own wage cost. Not a price list you set:
+          this reflects real pricing tiers automatically, including experience-based ones. Flags anything sitting
+          well below the salon's own median, with enough recent bookings to be worth acting on.
         </p>
       </header>
 
@@ -81,15 +99,21 @@ export function PricingPage() {
       {result?.ok && services.length === 0 && (
         <Card>
           <p className="text-sm text-[var(--color-ink-secondary)]">
-            No services in the live catalog yet — add your real prices, durations, and rough product costs via
-            Settings → Manual Data → "Service catalog." There's no live Fresha price-list export, so this only ever
-            reflects what's entered there.
+            No real bookings in the last 90 days yet, so there's nothing to compute an average from. This fills in on
+            its own as real appointments happen — nothing to enter to make this appear.
           </p>
         </Card>
       )}
 
       {result?.ok && services.length > 0 && (
         <>
+          <Card className="!p-3">
+            <p className="text-xs text-[var(--color-ink-secondary)]">
+              Add a rough product-cost estimate per service in Settings → Manual Data → "Service catalog" to sharpen
+              these figures — everything below already works without it, just treating product cost as £0 until then.
+            </p>
+          </Card>
+
           {result.portfolioMix?.message && (
             <Card className="border-l-2 border-l-[var(--color-warning)]">
               <p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-warning)]">Portfolio mix</p>
@@ -104,7 +128,7 @@ export function PricingPage() {
               </h2>
               <div className="space-y-3">
                 {(result.underpricedFlags ?? []).map((flag) => (
-                  <UnderpricedFlagCard key={flag.rawServiceName} flag={flag} />
+                  <UnderpricedFlagCard key={`${flag.rawServiceName}::${flag.stylistName ?? 'none'}`} flag={flag} />
                 ))}
               </div>
             </div>
@@ -112,38 +136,49 @@ export function PricingPage() {
 
           <div>
             <h2 className="mb-2 text-xs font-semibold tracking-wide text-[var(--color-ink-muted)] uppercase">
-              Every service
+              Every service, per stylist
             </h2>
             <Card className="overflow-x-auto p-0">
-              <table className="w-full min-w-[560px] text-sm">
+              <table className="w-full min-w-[620px] text-sm">
                 <thead>
                   <tr className="border-b border-[var(--color-border)] text-left text-xs text-[var(--color-ink-muted)]">
                     <th className="px-4 py-3 font-medium">Service</th>
-                    <th className="px-3 py-3 font-medium">Price</th>
-                    <th className="px-3 py-3 font-medium">Duration</th>
+                    <th className="px-3 py-3 font-medium">Stylist</th>
+                    <th className="px-3 py-3 font-medium">Avg. price</th>
+                    <th className="px-3 py-3 font-medium">Avg. duration</th>
                     <th className="px-3 py-3 font-medium">Profit/chair-hour</th>
                     <th className="px-3 py-3 font-medium">Bookings (90d)</th>
                   </tr>
                 </thead>
                 <tbody>
                   {sortedServices.map((s) => {
-                    const flagged = underpricedByName.has(s.rawServiceName);
+                    const flagged = underpricedByKey.has(flagKey(s));
                     return (
-                      <tr key={s.rawServiceName} className="border-b border-[var(--color-border)] last:border-b-0">
+                      <tr key={lineKey(s)} className="border-b border-[var(--color-border)] last:border-b-0">
                         <td className="px-4 py-3 font-medium text-[var(--color-ink)]">
                           {s.rawServiceName}
                           {flagged && <span className="ml-1.5 text-[10px] text-[var(--color-warning)]">●</span>}
-                          {s.isEstimate && <span className="ml-1 text-[10px] text-[var(--color-ink-muted)]">(est. cost)</span>}
+                          {s.isEstimate && s.estimatedProductCost !== null && (
+                            <span className="ml-1 text-[10px] text-[var(--color-ink-muted)]">(est. cost)</span>
+                          )}
                         </td>
-                        <td className="px-3 py-3 tabular-nums text-[var(--color-ink-secondary)]">{currency.format(s.price)}</td>
-                        <td className="px-3 py-3 tabular-nums text-[var(--color-ink-secondary)]">{s.durationMinutes}m</td>
+                        <td className="px-3 py-3 text-[var(--color-ink-secondary)]">
+                          {s.stylistName ?? 'Salon-wide'}
+                          {s.isProfitShare && (
+                            <span className="ml-1 text-[10px] text-[var(--color-accent-strong)]">(partner — no fixed wage)</span>
+                          )}
+                        </td>
+                        <td className="px-3 py-3 tabular-nums text-[var(--color-ink-secondary)]">{currency.format(s.avgPrice)}</td>
+                        <td className="px-3 py-3 tabular-nums text-[var(--color-ink-secondary)]">{s.avgDurationMinutes}m</td>
                         <td
                           className="px-3 py-3 tabular-nums font-medium"
                           style={{ color: flagged ? 'var(--color-warning)' : 'var(--color-ink)' }}
                         >
                           {currency.format(s.profitPerChairHour)}
                         </td>
-                        <td className="px-3 py-3 tabular-nums text-[var(--color-ink-secondary)]">{s.bookingCount90d}</td>
+                        <td className="px-3 py-3 tabular-nums text-[var(--color-ink-secondary)]">
+                          {s.bookingCount90d > 0 ? s.bookingCount90d : '—'}
+                        </td>
                       </tr>
                     );
                   })}
@@ -151,9 +186,11 @@ export function PricingPage() {
               </table>
             </Card>
             <p className="mt-2 text-xs text-[var(--color-ink-muted)]">
-              Salon median: {currency.format(result.salonMedianProfitPerChairHour ?? 0)}/chair-hour. Services need at
-              least 3 bookings in the last 90 days before they're flagged — too few to draw a pricing conclusion from
-              otherwise.
+              Salon median: {currency.format(result.salonMedianProfitPerChairHour ?? 0)}/chair-hour. A line needs at
+              least 3 real bookings in the last 90 days before it's flagged — too few to draw a pricing conclusion
+              from otherwise. "Salon-wide" rows are services with a manual price on file but no real bookings yet.
+              Partner rows (no fixed wage) have no wage cost to subtract — shown for visibility, excluded from the
+              median and from underpriced flagging since they aren't on a comparable cost basis.
             </p>
           </div>
         </>

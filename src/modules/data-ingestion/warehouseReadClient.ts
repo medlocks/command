@@ -31,6 +31,8 @@ export interface StylistRosterEntry {
   name: string;
   employmentStatus: 'active' | 'inactive' | 'apprentice';
   startDate: string | null;
+  /** True for a partner paid from profit share, not a wage (added 4 Sep 2026). */
+  isProfitShare: boolean;
 }
 
 export interface StylistRosterResult {
@@ -131,6 +133,8 @@ export interface ClientAppointmentHistoryResult {
 export interface StylistProfitability {
   stylistId: string;
   name: string;
+  /** True for a partner paid from profit share rather than a wage (added 4 Sep 2026) — her wageCost/margin/isUnderperforming are computed with wageCost forced to 0, since there's no real hourly rate for her, not because she's unusually cheap to employ. Label her numbers accordingly rather than comparing them directly to a waged stylist's. */
+  isProfitShare: boolean;
   appointmentCount: number;
   revenue: number;
   wageCost: number;
@@ -364,11 +368,16 @@ export function fetchStockState(): Promise<StockStateResult> {
   return callFunction({ query: 'stock_state' });
 }
 
+/** `avgPrice`/`avgDurationMinutes` are real realized averages from actual bookings (added 4 Sep 2026), not a manually-typed list price — see `fetchServiceProfitability`'s own doc comment. One row per (service, stylist) pair that's actually been booked, so real experience-based tiering shows up automatically. `stylistName`/`stylistId` are null only for the rare fallback row: a service with a manual price/duration on file but zero real bookings yet from anyone. */
 export interface ServiceProfitabilityRow {
   rawServiceName: string;
+  stylistId: string | null;
+  stylistName: string | null;
+  /** True for a profit-share partner's line — excluded from the median/underpriced-flag/portfolio-mix comparisons server-side, but still shown here for transparency. */
+  isProfitShare: boolean;
   category: string;
-  price: number;
-  durationMinutes: number;
+  avgPrice: number;
+  avgDurationMinutes: number;
   estimatedProductCost: number | null;
   isEstimate: boolean;
   wageCost: number;
@@ -378,6 +387,9 @@ export interface ServiceProfitabilityRow {
 
 export interface ServiceUnderpricedFlag {
   rawServiceName: string;
+  stylistName: string | null;
+  /** Ready-to-display label — the service name alone, or "Service — Stylist" when this is a per-stylist line. */
+  label: string;
   profitPerChairHour: number;
   salonMedianProfitPerChairHour: number;
   deltaVsMedian: number;
@@ -403,7 +415,18 @@ export interface ServiceProfitabilityResult {
   error?: string;
 }
 
-/** Real cutover of the pricing-analysis algorithm (added 4 Sep 2026) — profit-per-chair-hour per service, underpriced-service flags, and portfolio-mix check. Honestly empty until real services exist (Settings → Manual Data → "Service catalog") — there's no live Fresha price-list export to seed this from. */
+/**
+ * Real cutover of the pricing-analysis algorithm (added 4 Sep 2026, moved
+ * to real per-stylist realized pricing the same day) — profit-per-
+ * chair-hour per (service, stylist) pair, underpriced-service flags, and
+ * a portfolio-mix check. Price and duration are real averages of what's
+ * actually been charged and how long it actually took, per stylist, from
+ * real appointments — not a number typed into a catalog — so real
+ * experience-based tiering (a senior stylist charging more for the same
+ * service) shows up with zero extra data entry. Only `estimatedProductCost`
+ * stays manual (Settings → Manual Data → "Service catalog") — Fresha has
+ * no cost data anywhere, so there's no real source to derive it from.
+ */
 export function fetchServiceProfitability(): Promise<ServiceProfitabilityResult> {
   return callFunction({ query: 'service_profitability' });
 }

@@ -270,7 +270,7 @@ async function handleStylistsList(): Promise<Response> {
 async function handleStylistRoster(): Promise<Response> {
   const { data, error } = await supabase
     .from('stylists')
-    .select('id, name, employment_status, start_date')
+    .select('id, name, employment_status, start_date, is_profit_share')
     .order('name');
   if (error) return jsonResponse({ ok: false, error: error.message }, 500);
 
@@ -281,6 +281,7 @@ async function handleStylistRoster(): Promise<Response> {
       name: s.name,
       employmentStatus: s.employment_status,
       startDate: s.start_date,
+      isProfitShare: s.is_profit_share,
     })),
   });
 }
@@ -792,6 +793,7 @@ function prorateProductCostIntoPeriod(
 interface StylistLite {
   id: string;
   name: string;
+  isProfitShare: boolean;
 }
 
 interface ProfitabilityAppointmentRow {
@@ -877,7 +879,9 @@ function computeStylistProfitabilityRows(
 
   return stylists.map((stylist) => {
     const entry = byStylist.get(stylist.id) ?? { revenue: 0, minutes: 0, appointmentCount: 0 };
-    const hourlyRate = resolveCurrentWage(wages, stylist.id, periodEnd);
+    // A profit-share partner has no real hourly rate to look up — not missing data, a genuinely
+    // different compensation structure (added 4 Sep 2026). Her wageCost is correctly 0, not unknown.
+    const hourlyRate = stylist.isProfitShare ? 0 : resolveCurrentWage(wages, stylist.id, periodEnd);
     const hours = entry.minutes / 60;
     const wageCost = hourlyRate * hours;
     const productCost = salonRevenue > 0 ? salonProductCost * (entry.revenue / salonRevenue) : 0;
@@ -896,6 +900,7 @@ function computeStylistProfitabilityRows(
     return {
       stylistId: stylist.id,
       name: stylist.name,
+      isProfitShare: stylist.isProfitShare,
       appointmentCount: entry.appointmentCount,
       revenue: Math.round(entry.revenue * 100) / 100,
       wageCost: Math.round(wageCost * 100) / 100,
@@ -905,7 +910,9 @@ function computeStylistProfitabilityRows(
       targetMarginPct: TARGET_MARGIN_PCT,
       deltaToTargetPct,
       utilizationPct,
-      isUnderperforming: deltaToTargetPct < -0.1,
+      // The wage-cost-based target-margin threshold doesn't apply to a profit-share partner —
+      // her wageCost being 0 isn't "beating target," it's a different compensation model entirely.
+      isUnderperforming: stylist.isProfitShare ? false : deltaToTargetPct < -0.1,
       aov: Math.round(aov * 100) / 100,
       weeklyHours,
     };
@@ -942,7 +949,7 @@ async function handleStylistProfitability(range: unknown): Promise<Response> {
     { data: workingPattern, error: patternError },
     { data: leave, error: leaveError },
   ] = await Promise.all([
-    supabase.from('stylists').select('id, name').eq('employment_status', 'active'),
+    supabase.from('stylists').select('id, name, is_profit_share').eq('employment_status', 'active'),
     supabase
       .from('fresha_appointments')
       .select('team_member_name, client_name, net_sales, duration_minutes, scheduled_date')
@@ -964,8 +971,10 @@ async function handleStylistProfitability(range: unknown): Promise<Response> {
   if (patternError) return jsonResponse({ ok: false, error: patternError.message }, 500);
   if (leaveError) return jsonResponse({ ok: false, error: leaveError.message }, 500);
 
+  const stylistList: StylistLite[] = (stylists ?? []).map((s) => ({ id: s.id, name: s.name, isProfitShare: s.is_profit_share }));
+
   const results = computeStylistProfitabilityRows(
-    stylists ?? [],
+    stylistList,
     appointments ?? [],
     wages ?? [],
     hoursHistory ?? [],
@@ -975,7 +984,7 @@ async function handleStylistProfitability(range: unknown): Promise<Response> {
     workingPattern ?? [],
     leave ?? [],
   );
-  const unmatchedAppointmentCount = countUnmatchedAppointments(appointments ?? [], stylists ?? []);
+  const unmatchedAppointmentCount = countUnmatchedAppointments(appointments ?? [], stylistList);
 
   return jsonResponse({ ok: true, periodStart, periodEnd, stylists: results, unmatchedAppointmentCount });
 }
@@ -1026,7 +1035,7 @@ async function handleStylistProfitabilityByPeriod(periods: unknown): Promise<Res
     { data: workingPattern, error: patternError },
     { data: leave, error: leaveError },
   ] = await Promise.all([
-    supabase.from('stylists').select('id, name').eq('employment_status', 'active'),
+    supabase.from('stylists').select('id, name, is_profit_share').eq('employment_status', 'active'),
     supabase
       .from('fresha_appointments')
       .select('team_member_name, client_name, net_sales, duration_minutes, scheduled_date')
@@ -1049,7 +1058,7 @@ async function handleStylistProfitabilityByPeriod(periods: unknown): Promise<Res
   if (leaveError) return jsonResponse({ ok: false, error: leaveError.message }, 500);
 
   const allAppointments = appointments ?? [];
-  const activeStylists = stylists ?? [];
+  const activeStylists: StylistLite[] = (stylists ?? []).map((s) => ({ id: s.id, name: s.name, isProfitShare: s.is_profit_share }));
 
   const periodResults = parsed.map(({ start, end }) => {
     const inPeriod = allAppointments.filter((a) => a.scheduled_date !== null && a.scheduled_date >= start && a.scheduled_date <= end);
@@ -1291,28 +1300,38 @@ async function handleStockState(): Promise<Response> {
 }
 
 // ---------------------------------------------------------------------
-// service_profitability (Requirements Section 5.11, added 4 Sep 2026) —
-// real cutover of an algorithm that has existed, fully built and tested,
-// in `src/modules/insight-engine/deterministic/serviceProfitability.ts`
-// since before this round, but was never wired to real data or shown
-// anywhere — found while answering "do we already have pricing
-// analysis?" Reimplements that file's three functions fresh here (Edge
-// Functions don't share code with `src/`, same as everywhere else):
-// per-service profit-per-chair-hour, underpriced-service flags with a
-// concrete "raise the price by £X" figure, and a portfolio-mix check for
-// "your most-booked services are actually your least profitable."
+// service_profitability (Requirements Section 5.11, added 4 Sep 2026,
+// moved to real per-stylist realized pricing 4 Sep 2026) — per-stylist
+// profit-per-chair-hour, underpriced-service flags with a concrete
+// "raise the price by £X" figure, and a portfolio-mix check for "your
+// most-booked services are actually your least profitable."
 //
-// `services`/`service_categories` are manually seeded (Settings → Manual
-// Data → "Service catalog") — there is no live Fresha price-list export,
-// so this stays empty (and this query honestly returns empty arrays)
-// until the owner enters their real services there, same pattern as
-// `products` for Stock.
+// Deliberately NOT built on a manually-typed list price: every real
+// appointment already carries the actual amount charged and the actual
+// duration, per stylist (`net_sales`/`duration_minutes`/
+// `team_member_name`) — so price and duration are real realized averages
+// per (service, stylist) pair, not a number someone typed in. This
+// captures real experience-based tiering (a senior stylist genuinely
+// charging more for the same service) automatically, with zero extra
+// data entry, and reflects what's actually happening rather than a
+// stated intention. `estimated_product_cost` on `services` is the one
+// figure kept as manual entry — Fresha has no cost data anywhere, so
+// there's no real source to derive it from either way.
+//
+// A service with real bookings gets one row per stylist who's performed
+// it in the trailing window; a service with a manual price/duration on
+// file but zero real bookings from anyone still gets one salon-wide
+// fallback row (so a brand-new not-yet-booked service isn't invisible),
+// using the salon-average wage rate the same way the old list-price
+// model did. `services`/`service_categories` are manually seeded
+// (Settings → Manual Data → "Service catalog") for the category tag and
+// optional cost estimate.
 // ---------------------------------------------------------------------
 
 const SERVICE_PROFITABILITY_WINDOW_DAYS = 90;
-/** Ignore services with too few bookings in the window to draw a pricing conclusion from — mirrors the `src/` original's own stated floor. */
+/** Ignore (service, stylist) pairs with too few bookings in the window to draw a pricing conclusion from. */
 const MIN_BOOKINGS_TO_FLAG = 3;
-/** A service more than this far below the salon's median profit-per-chair-hour is a real pricing gap, not noise — a stated assumption (Requirements Section 13), same figure as the `src/` original. */
+/** A service more than this far below the salon's median profit-per-chair-hour is a real pricing gap, not noise — a stated assumption (Requirements Section 13). */
 const UNDERPRICED_GAP_PER_HOUR = 15;
 const PORTFOLIO_MIX_TOP_N = 3;
 const MISALIGNMENT_OVERLAP_FRACTION = 0.5;
@@ -1322,6 +1341,26 @@ function median(values: readonly number[]): number {
   const sorted = [...values].sort((a, b) => a - b);
   const mid = Math.floor(sorted.length / 2);
   return sorted.length % 2 === 0 ? (sorted[mid - 1]! + sorted[mid]!) / 2 : sorted[mid]!;
+}
+
+interface ServiceProfitabilityLine {
+  rawServiceName: string;
+  stylistId: string | null;
+  stylistName: string | null;
+  /** True for a profit-share partner's line (added 4 Sep 2026) — her wageCost is correctly 0, not comparable to a waged stylist's cost-inclusive figure, so this line is excluded from the median/underpriced-flag/portfolio-mix comparisons even though it's still shown in the full table. */
+  isProfitShare: boolean;
+  category: string;
+  avgPrice: number;
+  avgDurationMinutes: number;
+  estimatedProductCost: number | null;
+  isEstimate: boolean;
+  wageCost: number;
+  profitPerChairHour: number;
+  bookingCount90d: number;
+}
+
+function serviceLineLabel(line: Pick<ServiceProfitabilityLine, 'rawServiceName' | 'stylistName'>): string {
+  return line.stylistName ? `${line.rawServiceName} — ${line.stylistName}` : line.rawServiceName;
 }
 
 async function handleServiceProfitability(): Promise<Response> {
@@ -1337,11 +1376,11 @@ async function handleServiceProfitability(): Promise<Response> {
   ] = await Promise.all([
     supabase.from('services').select('raw_service_name, price, duration_minutes, estimated_product_cost, is_estimate'),
     supabase.from('service_categories').select('raw_service_name, category'),
-    supabase.from('stylists').select('id').eq('employment_status', 'active'),
+    supabase.from('stylists').select('id, name, is_profit_share').eq('employment_status', 'active'),
     supabase.from('stylist_wages').select('stylist_id, hourly_rate, effective_from, effective_to'),
     supabase
       .from('fresha_appointments')
-      .select('service, client_name, scheduled_date')
+      .select('service, team_member_name, client_name, net_sales, duration_minutes, scheduled_date')
       .in('status', REAL_WORK_STATUSES)
       .gte('scheduled_date', windowStart)
       .lte('scheduled_date', referenceDate),
@@ -1353,49 +1392,108 @@ async function handleServiceProfitability(): Promise<Response> {
   if (apptError) return jsonResponse({ ok: false, error: apptError.message }, 500);
 
   const categoryByName = new Map((categories ?? []).map((c) => [c.raw_service_name, c.category as string]));
+  const costByName = new Map(
+    (services ?? []).map((s) => [
+      s.raw_service_name,
+      { estimatedProductCost: s.estimated_product_cost !== null ? Number(s.estimated_product_cost) : null, isEstimate: s.is_estimate as boolean },
+    ]),
+  );
   const stylistList = activeStylists ?? [];
-  const avgHourlyRate =
-    stylistList.length > 0
-      ? stylistList.reduce((sum, s) => sum + resolveCurrentWage(wages ?? [], s.id, referenceDate), 0) / stylistList.length
+  const stylistsByName = new Map(stylistList.map((s) => [s.name, s]));
+  // Excludes profit-share partners — their real wageCost is 0 by design, not a real rate to fold into a
+  // generic salon-wide average (that average is only ever used for a fallback row on an unbooked service).
+  const wagedStylists = stylistList.filter((s) => !s.is_profit_share);
+  const avgHourlyRateSalon =
+    wagedStylists.length > 0
+      ? wagedStylists.reduce((sum, s) => sum + resolveCurrentWage(wages ?? [], s.id, referenceDate), 0) / wagedStylists.length
       : 0;
 
-  const bookingCounts = new Map<string, number>();
+  const groups = new Map<string, { totalPrice: number; totalMinutes: number; count: number; rawServiceName: string; stylistId: string }>();
+  const serviceNamesWithBookings = new Set<string>();
   for (const a of appointments ?? []) {
     if (a.client_name && INTERNAL_BLOCK_CLIENT_NAMES.has(a.client_name)) continue;
-    if (!a.service) continue;
-    bookingCounts.set(a.service, (bookingCounts.get(a.service) ?? 0) + 1);
+    if (!a.service || !a.team_member_name) continue;
+    const stylist = stylistsByName.get(a.team_member_name);
+    if (!stylist) continue; // unmatched stylist name — tracked separately, skip here rather than attribute to an unknown identity
+    const key = `${a.service}::${stylist.id}`;
+    const g = groups.get(key) ?? { totalPrice: 0, totalMinutes: 0, count: 0, rawServiceName: a.service, stylistId: stylist.id };
+    g.totalPrice += Number(a.net_sales);
+    g.totalMinutes += a.duration_minutes ?? 0;
+    g.count += 1;
+    groups.set(key, g);
+    serviceNamesWithBookings.add(a.service);
   }
 
-  const profitability = (services ?? []).map((s) => {
+  const profitability: ServiceProfitabilityLine[] = [];
+  for (const g of groups.values()) {
+    const stylist = stylistList.find((s) => s.id === g.stylistId)!;
+    const avgPrice = g.totalPrice / g.count;
+    const avgDurationMinutes = g.totalMinutes / g.count;
+    const durationHours = avgDurationMinutes / 60;
+    const hourlyRate = stylist.is_profit_share ? 0 : resolveCurrentWage(wages ?? [], stylist.id, referenceDate);
+    const wageCost = durationHours > 0 ? hourlyRate * durationHours : 0;
+    const cost = costByName.get(g.rawServiceName);
+    const productCost = cost?.estimatedProductCost ?? 0;
+    const profitPerChairHour = durationHours > 0 ? (avgPrice - productCost - wageCost) / durationHours : 0;
+
+    profitability.push({
+      rawServiceName: g.rawServiceName,
+      stylistId: stylist.id,
+      stylistName: stylist.name,
+      isProfitShare: stylist.is_profit_share,
+      category: categoryByName.get(g.rawServiceName) ?? 'other',
+      avgPrice: Math.round(avgPrice * 100) / 100,
+      avgDurationMinutes: Math.round(avgDurationMinutes),
+      estimatedProductCost: cost?.estimatedProductCost ?? null,
+      isEstimate: cost?.isEstimate ?? true,
+      wageCost: Math.round(wageCost * 100) / 100,
+      profitPerChairHour: Math.round(profitPerChairHour * 100) / 100,
+      bookingCount90d: g.count,
+    });
+  }
+
+  // Fallback: a service with a manual price/duration but zero real bookings from anyone yet.
+  for (const s of services ?? []) {
+    if (serviceNamesWithBookings.has(s.raw_service_name)) continue;
+    if (s.price === null || s.duration_minutes === null) continue;
     const durationHours = s.duration_minutes / 60;
-    const wageCost = durationHours > 0 ? avgHourlyRate * durationHours : 0;
+    const wageCost = durationHours > 0 ? avgHourlyRateSalon * durationHours : 0;
     const productCost = s.estimated_product_cost !== null ? Number(s.estimated_product_cost) : 0;
     const profitPerChairHour = durationHours > 0 ? (Number(s.price) - productCost - wageCost) / durationHours : 0;
 
-    return {
-      rawServiceName: s.raw_service_name as string,
+    profitability.push({
+      rawServiceName: s.raw_service_name,
+      stylistId: null,
+      stylistName: null,
+      isProfitShare: false,
       category: categoryByName.get(s.raw_service_name) ?? 'other',
-      price: Number(s.price),
-      durationMinutes: s.duration_minutes as number,
+      avgPrice: Number(s.price),
+      avgDurationMinutes: s.duration_minutes,
       estimatedProductCost: s.estimated_product_cost !== null ? Number(s.estimated_product_cost) : null,
-      isEstimate: s.is_estimate as boolean,
+      isEstimate: s.is_estimate,
       wageCost: Math.round(wageCost * 100) / 100,
       profitPerChairHour: Math.round(profitPerChairHour * 100) / 100,
-      bookingCount90d: bookingCounts.get(s.raw_service_name) ?? 0,
-    };
-  });
+      bookingCount90d: 0,
+    });
+  }
 
-  const salonMedianProfitPerChairHour = median(profitability.map((p) => p.profitPerChairHour));
+  // Profit-share lines are excluded from every comparison below — her wageCost-free figure isn't on the
+  // same basis as a waged stylist's, so it can't fairly set or be judged against the salon median. She still
+  // appears in the raw `services` array returned at the end, just not in these derived comparisons.
+  const comparable = profitability.filter((p) => !p.isProfitShare);
+  const salonMedianProfitPerChairHour = median(comparable.map((p) => p.profitPerChairHour));
 
-  const underpricedFlags = profitability
+  const underpricedFlags = comparable
     .filter((p) => p.bookingCount90d >= MIN_BOOKINGS_TO_FLAG)
     .filter((p) => salonMedianProfitPerChairHour - p.profitPerChairHour > UNDERPRICED_GAP_PER_HOUR)
     .map((p) => {
       const deltaVsMedian = p.profitPerChairHour - salonMedianProfitPerChairHour;
-      const durationHours = p.durationMinutes / 60;
+      const durationHours = p.avgDurationMinutes / 60;
       const suggestedPriceIncrease = Math.round(Math.abs(deltaVsMedian) * durationHours);
       return {
         rawServiceName: p.rawServiceName,
+        stylistName: p.stylistName,
+        label: serviceLineLabel(p),
         profitPerChairHour: p.profitPerChairHour,
         salonMedianProfitPerChairHour,
         deltaVsMedian,
@@ -1406,7 +1504,7 @@ async function handleServiceProfitability(): Promise<Response> {
     })
     .sort((a, b) => a.deltaVsMedian - b.deltaVsMedian);
 
-  const withBookings = profitability.filter((p) => p.bookingCount90d > 0);
+  const withBookings = comparable.filter((p) => p.bookingCount90d > 0);
   const n = Math.min(PORTFOLIO_MIX_TOP_N, withBookings.length);
   let portfolioMix: {
     topByVolume: string[];
@@ -1420,8 +1518,8 @@ async function handleServiceProfitability(): Promise<Response> {
   } else {
     const byVolumeDesc = [...withBookings].sort((a, b) => b.bookingCount90d - a.bookingCount90d);
     const byProfitAsc = [...withBookings].sort((a, b) => a.profitPerChairHour - b.profitPerChairHour);
-    const topByVolume = byVolumeDesc.slice(0, n).map((p) => p.rawServiceName);
-    const bottomByProfit = byProfitAsc.slice(0, n).map((p) => p.rawServiceName);
+    const topByVolume = byVolumeDesc.slice(0, n).map((p) => serviceLineLabel(p));
+    const bottomByProfit = byProfitAsc.slice(0, n).map((p) => serviceLineLabel(p));
     const overlapCount = topByVolume.filter((name) => bottomByProfit.includes(name)).length;
     const hasMisalignment = overlapCount / n >= MISALIGNMENT_OVERLAP_FRACTION;
     let message: string | null = null;

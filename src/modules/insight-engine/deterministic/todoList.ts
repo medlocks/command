@@ -343,10 +343,11 @@ export function buildRankedTodoList(input: {
   // --- Service-level profitability & pricing (Requirements Section 5.11) ---
 
   for (const flag of input.underpricedServiceFlags) {
+    const flagLabel = flag.stylistName ? `${flag.rawServiceName} (${flag.stylistName})` : flag.rawServiceName;
     candidates.push({
-      id: makeId('service-profitability', `underpriced-${flag.rawServiceName}`),
+      id: makeId('service-profitability', `underpriced-${flag.rawServiceName}-${flag.stylistName ?? 'salon'}`),
       category: 'service-profitability',
-      title: `${flag.rawServiceName} nets less profit per hour than your other services`,
+      title: `${flagLabel} nets less profit per hour than your other services`,
       detail:
         `${formatImpact(flag.profitPerChairHour)}/chair-hour vs. a ${formatImpact(flag.salonMedianProfitPerChairHour)} salon median — worth a ~${formatImpact(flag.suggestedPriceIncrease)} price review.` +
         (flag.isLowConfidence ? ' Cost estimate for this service is a rough guess, so treat this as directional.' : ''),
@@ -364,7 +365,12 @@ export function buildRankedTodoList(input: {
     const overlapNames = new Set(
       input.portfolioMixInsight.topByVolume.filter((name) => input.portfolioMixInsight.bottomByProfit.includes(name)),
     );
-    const overlapFlags = input.underpricedServiceFlags.filter((flag) => overlapNames.has(flag.rawServiceName));
+    // Matches `topByVolume`/`bottomByProfit` entries, which are "Service — Stylist" labels in the real
+    // per-stylist cutover (added 4 Sep 2026) but plain service names in the mock path — this mirrors
+    // whichever shape the flag itself came from, rather than assuming one.
+    const overlapFlags = input.underpricedServiceFlags.filter((flag) =>
+      overlapNames.has(flag.stylistName ? `${flag.rawServiceName} — ${flag.stylistName}` : flag.rawServiceName),
+    );
     const impact = overlapFlags.reduce((sum, flag) => sum + flag.suggestedPriceIncrease * flag.bookingCount90d, 0);
 
     candidates.push({

@@ -62,9 +62,12 @@ export async function buildRealGrowthRoadmap(referenceDate: string, windowMonths
   const atRiskCount = new Set((insightLists.lapseRisk ?? []).map((f) => f.clientId)).size;
 
   const periodRows = profitabilityByPeriod.periods ?? [];
+  // Excludes profit-share partners from the target-margin share (added 4 Sep 2026) — her wageCost is
+  // correctly 0, not a real "beating target" result, so including her would silently inflate this figure.
   const monthlyShares = periodRows.map((period) => {
-    const atTarget = period.stylists.filter((s) => !s.isUnderperforming).length;
-    return period.stylists.length > 0 ? atTarget / period.stylists.length : 0;
+    const wagedStylists = period.stylists.filter((s) => !s.isProfitShare);
+    const atTarget = wagedStylists.filter((s) => !s.isUnderperforming).length;
+    return wagedStylists.length > 0 ? atTarget / wagedStylists.length : 0;
   });
   const monthlyUtilization = periodRows.map((period) =>
     period.stylists.length > 0 ? period.stylists.reduce((sum, s) => sum + s.utilizationPct, 0) / period.stylists.length : 0,

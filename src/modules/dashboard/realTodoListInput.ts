@@ -174,6 +174,7 @@ export async function buildRealTodoListCandidates(referenceDate: string): Promis
 
   const underpricedServiceFlags: UnderpricedServiceFlag[] = (serviceProfitabilityResult.underpricedFlags ?? []).map((flag) => ({
     rawServiceName: flag.rawServiceName,
+    stylistName: flag.stylistName,
     profitPerChairHour: flag.profitPerChairHour,
     salonMedianProfitPerChairHour: flag.salonMedianProfitPerChairHour,
     deltaVsMedian: flag.deltaVsMedian,

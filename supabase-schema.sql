@@ -36,6 +36,14 @@ create table public.stylists (
   name text not null,
   employment_status text not null default 'active', -- active | inactive | apprentice
   start_date date,
+  -- Added 4 Sep 2026 — a partner paid from profit share, not a wage, has
+  -- no real hourly-rate figure to enter at all (not missing data, a
+  -- genuinely different compensation structure). Every place that computes
+  -- wage-cost-based margin/profit-per-hour must check this and label
+  -- accordingly — a profit-share stylist's wageCost is correctly 0, but
+  -- that makes her margin/profit numbers look artificially perfect if
+  -- shown next to a waged stylist's without saying so.
+  is_profit_share boolean not null default false,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -253,9 +261,14 @@ create table public.service_product_usage (
 create table public.services (
   id uuid primary key default gen_random_uuid(),
   raw_service_name text not null unique references public.service_categories(raw_service_name),
-  price numeric(10,2) not null,
-  duration_minutes integer not null,
-  estimated_product_cost numeric(10,2), -- optional, rough estimate is fine
+  -- price/duration_minutes made optional 4 Sep 2026 — pricing analysis
+  -- moved to real per-stylist realized averages (actual net_sales/
+  -- duration_minutes from fresha_appointments), not a manually-typed list
+  -- price, so these two are no longer required. Still here as an optional
+  -- manual override for a service with no real bookings yet.
+  price numeric(10,2),
+  duration_minutes integer,
+  estimated_product_cost numeric(10,2), -- optional, rough estimate is fine — the one figure with no real data source, always manual
   is_estimate boolean not null default true, -- flags cost confidence per req. Section 5.11
   updated_at timestamptz not null default now(),
   created_at timestamptz not null default now()

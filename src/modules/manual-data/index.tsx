@@ -561,27 +561,24 @@ function StylistLeaveForm() {
   );
 }
 
-/** Service catalog (Requirements Section 3.6) — price, duration, and an optional rough product-cost estimate per service, matched to the exact raw_service_name Fresha uses. Also upserts the supporting `service_categories` row server-side, so this form is self-sufficient and doesn't depend on real appointment data existing first. */
+/**
+ * Service catalog (Requirements Section 3.6, simplified 4 Sep 2026) —
+ * category and an optional rough product-cost estimate per service,
+ * matched to the exact raw_service_name Fresha uses. Price and duration
+ * are no longer entered here: pricing analysis now uses real realized
+ * averages from actual bookings, per stylist, so a manually-typed price
+ * would just be redundant (and would silently go stale). Also upserts
+ * the supporting `service_categories` row server-side.
+ */
 function ServiceCatalogForm() {
   const [rawServiceName, setRawServiceName] = useState('');
-  const [price, setPrice] = useState('');
-  const [durationMinutes, setDurationMinutes] = useState('');
   const [estimatedProductCost, setEstimatedProductCost] = useState('');
   const [isEstimate, setIsEstimate] = useState(true);
   const [category, setCategory] = useState<(typeof SERVICE_CATEGORIES)[number]>('cut');
   const [result, setResult] = useState<WarehouseWriteResult | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const priceNum = Number(price);
-  const durationNum = Number(durationMinutes);
-  const canSubmit =
-    rawServiceName.trim() !== '' &&
-    price !== '' &&
-    Number.isFinite(priceNum) &&
-    priceNum >= 0 &&
-    durationMinutes !== '' &&
-    Number.isInteger(durationNum) &&
-    durationNum > 0;
+  const canSubmit = rawServiceName.trim() !== '';
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
@@ -591,8 +588,6 @@ function ServiceCatalogForm() {
     try {
       const res = await commitService({
         rawServiceName: rawServiceName.trim(),
-        price: priceNum,
-        durationMinutes: durationNum,
         estimatedProductCost: estimatedProductCost !== '' ? Number(estimatedProductCost) : null,
         isEstimate,
         category,
@@ -600,8 +595,6 @@ function ServiceCatalogForm() {
       setResult(res);
       if (res.ok) {
         setRawServiceName('');
-        setPrice('');
-        setDurationMinutes('');
         setEstimatedProductCost('');
       }
     } finally {
@@ -615,8 +608,9 @@ function ServiceCatalogForm() {
         Service catalog
       </h2>
       <p className="mb-2 text-sm text-[var(--color-ink-secondary)]">
-        Match the service name exactly as it appears in Fresha — this is what lets the insight engine connect
-        real bookings to a price, duration, and profitability figure.
+        Match the service name exactly as it appears in Fresha. Price and duration are computed automatically from
+        real bookings, per stylist — nothing to enter here for those. Category and product cost are the only manual
+        pieces, and both are optional.
       </p>
       <form className="space-y-3" onSubmit={(event) => void handleSubmit(event)}>
         <div>
@@ -627,23 +621,6 @@ function ServiceCatalogForm() {
             placeholder="e.g. Full Highlights"
             className={INPUT_CLASSES}
           />
-        </div>
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="mb-1 block text-xs font-medium text-[var(--color-ink-muted)]">Price (£)</label>
-            <input type="number" min="0" step="0.01" value={price} onChange={(event) => setPrice(event.target.value)} className={INPUT_CLASSES} />
-          </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium text-[var(--color-ink-muted)]">Duration (mins)</label>
-            <input
-              type="number"
-              min="1"
-              step="1"
-              value={durationMinutes}
-              onChange={(event) => setDurationMinutes(event.target.value)}
-              className={INPUT_CLASSES}
-            />
-          </div>
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
