@@ -479,6 +479,11 @@ function isOnLeave(stylistLeave: readonly LeaveRow[], date: string): boolean {
 }
 
 /** Same three-layer fallback as warehouse-read's `computeCapacityHours` (23 Aug 2026) — see that function's own doc comment for the full reasoning. Reimplemented fresh here, not imported, same as everything else in this file. */
+/** Standard UK full-time entitlement (added 4 Sep 2026) — used only to convert `DEFAULT_PTO_DAYS_PER_YEAR` into an hours figure; not itself a claim about how many days anyone actually works. */
+const STANDARD_WORKING_DAYS_PER_WEEK = 5;
+/** Own copy of `warehouse-read`'s same constant/deduction — statutory-minimum UK holiday entitlement, prorated into every capacity calculation, since real per-stylist leave dates aren't tracked in Fresha. Only applied when a stylist has ZERO real `stylist_leave` rows on file; backs off entirely the moment real leave data exists for them. See `warehouse-read`'s own copy for the full reasoning. */
+const DEFAULT_PTO_DAYS_PER_YEAR = 28;
+
 function computeCapacityHours(
   workingPattern: readonly WorkingPatternRow[],
   leave: readonly LeaveRow[],
@@ -505,6 +510,15 @@ function computeCapacityHours(
     }
     date = addDays(date, 1);
   }
+
+  if (stylistLeave.length === 0) {
+    const avgDailyHours = weeklyHours / STANDARD_WORKING_DAYS_PER_WEEK;
+    const ptoHoursPerYear = DEFAULT_PTO_DAYS_PER_YEAR * avgDailyHours;
+    const periodDays = daysBetween(periodStart, periodEnd) + 1;
+    const ptoHoursForPeriod = ptoHoursPerYear * (periodDays / 365);
+    total = Math.max(total - ptoHoursForPeriod, 0);
+  }
+
   return total;
 }
 

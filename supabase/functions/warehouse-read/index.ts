@@ -728,6 +728,11 @@ function isOnLeave(stylistLeave: readonly LeaveRow[], date: string): boolean {
  * entered is treated as precise-mode for their whole history, the same
  * simplification `resolveCurrentHours`'s null-fallback already makes.
  */
+/** Standard UK full-time entitlement (added 4 Sep 2026) — used only to convert `DEFAULT_PTO_DAYS_PER_YEAR` into an hours figure; not itself a claim about how many days anyone actually works. */
+const STANDARD_WORKING_DAYS_PER_WEEK = 5;
+/** Statutory-minimum UK holiday entitlement, prorated into every capacity calculation as an hours deduction (added 4 Sep 2026) — real per-stylist leave dates are never tracked in Fresha, so this is the best available stand-in: closes most of a real gap the owner found (Fresha's own "Working hours" ran meaningfully below a flat weekly-hours assumption, consistent with real holiday nobody logs anywhere else). Only applied when a stylist has ZERO real `stylist_leave` rows on file — the moment even one real date exists for someone, this backs off entirely in favor of that, same "richest available data wins" rule as the pattern/leave layers below. Necessarily a smoothed annual average, not real dates — it won't reproduce a specific lumpy month exactly (see this constant's own discussion the day it was added), only pulls the trend the right direction. */
+const DEFAULT_PTO_DAYS_PER_YEAR = 28;
+
 function computeCapacityHours(
   workingPattern: readonly WorkingPatternRow[],
   leave: readonly LeaveRow[],
@@ -754,6 +759,15 @@ function computeCapacityHours(
     }
     date = addDays(date, 1);
   }
+
+  if (stylistLeave.length === 0) {
+    const avgDailyHours = weeklyHours / STANDARD_WORKING_DAYS_PER_WEEK;
+    const ptoHoursPerYear = DEFAULT_PTO_DAYS_PER_YEAR * avgDailyHours;
+    const periodDays = daysBetween(periodStart, periodEnd) + 1;
+    const ptoHoursForPeriod = ptoHoursPerYear * (periodDays / 365);
+    total = Math.max(total - ptoHoursForPeriod, 0);
+  }
+
   return total;
 }
 
