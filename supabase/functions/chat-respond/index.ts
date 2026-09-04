@@ -484,6 +484,16 @@ const STANDARD_WORKING_DAYS_PER_WEEK = 5;
 /** Own copy of `warehouse-read`'s same constant/deduction — statutory-minimum UK holiday entitlement, prorated into every capacity calculation, since real per-stylist leave dates aren't tracked in Fresha. Only applied when a stylist has ZERO real `stylist_leave` rows on file; backs off entirely the moment real leave data exists for them. See `warehouse-read`'s own copy for the full reasoning. */
 const DEFAULT_PTO_DAYS_PER_YEAR = 28;
 
+/** Own copy of `warehouse-read`'s `INTERNAL_BLOCK_CLIENT_NAMES` (added 4 Sep 2026) — see that file for the full reasoning: these are fake "client" bookings staff use to block lunch/holiday/meetings/training in the calendar, not real client work. */
+const INTERNAL_BLOCK_CLIENT_NAMES = new Set([
+  'Lunch 🤍',
+  'Holiday',
+  'Team Meeting',
+  'Extension Training 💓',
+  'Elise Lashes',
+  'Dolly Doo',
+]);
+
 function computeCapacityHours(
   workingPattern: readonly WorkingPatternRow[],
   leave: readonly LeaveRow[],
@@ -532,7 +542,7 @@ async function buildStylistProfitabilityContext(): Promise<string> {
     supabase.from('stylists').select('id, name').eq('employment_status', 'active'),
     supabase
       .from('fresha_appointments')
-      .select('team_member_name, net_sales, duration_minutes, scheduled_date')
+      .select('team_member_name, client_name, net_sales, duration_minutes, scheduled_date')
       .in('status', REAL_WORK_STATUSES)
       .gte('scheduled_date', periodStart)
       .lte('scheduled_date', periodEnd),
@@ -557,6 +567,7 @@ async function buildStylistProfitabilityContext(): Promise<string> {
   let unmatchedCount = 0;
   const byStylist = new Map<string, { revenue: number; minutes: number; appointmentCount: number }>();
   for (const a of appointments ?? []) {
+    if (a.client_name && INTERNAL_BLOCK_CLIENT_NAMES.has(a.client_name)) continue;
     const stylist = a.team_member_name ? stylistsByName.get(a.team_member_name) : undefined;
     if (!stylist) {
       unmatchedCount++;

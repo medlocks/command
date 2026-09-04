@@ -796,10 +796,34 @@ interface StylistLite {
 
 interface ProfitabilityAppointmentRow {
   team_member_name: string | null;
+  client_name: string | null;
   net_sales: number;
   duration_minutes: number | null;
   scheduled_date: string | null;
 }
+
+/**
+ * Not real client bookings (added 4 Sep 2026, found while reconciling
+ * utilization against the owner's real Fresha screenshots): staff block
+ * out lunch/holiday/meetings/training by creating a fake "Consultation"
+ * appointment under one of these placeholder names, rather than using a
+ * dedicated block-time feature. All zero-revenue, confirmed for real
+ * against the owner's own data. Excluded everywhere real appointments get
+ * aggregated into hours/revenue — otherwise this fix's own earlier
+ * broadening of REAL_WORK_STATUSES starts counting lunch breaks as billed
+ * client work. A known, deliberately incomplete list — a long tail of
+ * other small, ambiguous entries (a handful of hours each, total) exists
+ * and isn't chased here; this catches the handful of names responsible
+ * for the overwhelming majority of the real gap (400+ hours salon-wide).
+ */
+const INTERNAL_BLOCK_CLIENT_NAMES = new Set([
+  'Lunch 🤍',
+  'Holiday',
+  'Team Meeting',
+  'Extension Training 💓',
+  'Elise Lashes',
+  'Dolly Doo',
+]);
 
 interface WageRow {
   stylist_id: string;
@@ -838,6 +862,7 @@ function computeStylistProfitabilityRows(
 
   const byStylist = new Map<string, { revenue: number; minutes: number; appointmentCount: number }>();
   for (const a of appointmentsInPeriod) {
+    if (a.client_name && INTERNAL_BLOCK_CLIENT_NAMES.has(a.client_name)) continue;
     const stylist = a.team_member_name ? stylistsByName.get(a.team_member_name) : undefined;
     if (!stylist) continue;
     const entry = byStylist.get(stylist.id) ?? { revenue: 0, minutes: 0, appointmentCount: 0 };
@@ -920,7 +945,7 @@ async function handleStylistProfitability(range: unknown): Promise<Response> {
     supabase.from('stylists').select('id, name').eq('employment_status', 'active'),
     supabase
       .from('fresha_appointments')
-      .select('team_member_name, net_sales, duration_minutes, scheduled_date')
+      .select('team_member_name, client_name, net_sales, duration_minutes, scheduled_date')
       .in('status', REAL_WORK_STATUSES)
       .gte('scheduled_date', periodStart)
       .lte('scheduled_date', periodEnd)
@@ -1004,7 +1029,7 @@ async function handleStylistProfitabilityByPeriod(periods: unknown): Promise<Res
     supabase.from('stylists').select('id, name').eq('employment_status', 'active'),
     supabase
       .from('fresha_appointments')
-      .select('team_member_name, net_sales, duration_minutes, scheduled_date')
+      .select('team_member_name, client_name, net_sales, duration_minutes, scheduled_date')
       .in('status', REAL_WORK_STATUSES)
       .gte('scheduled_date', overallStart)
       .lte('scheduled_date', overallEnd)
@@ -1093,13 +1118,13 @@ async function handleAveragePrices(): Promise<Response> {
 
   const { data, error } = await supabase
     .from('fresha_appointments')
-    .select('category, net_sales')
+    .select('client_name, category, net_sales')
     .in('status', REAL_WORK_STATUSES)
     .gte('scheduled_date', cutoffStr)
     .lte('scheduled_date', referenceDate);
   if (error) return jsonResponse({ ok: false, error: error.message }, 500);
 
-  const rows = data ?? [];
+  const rows = (data ?? []).filter((r) => !r.client_name || !INTERNAL_BLOCK_CLIENT_NAMES.has(r.client_name));
   const colourRows = rows.filter((r) => r.category === COLOUR_CATEGORY);
   const avg = (list: { net_sales: number }[]) =>
     list.length > 0 ? Math.round((list.reduce((sum, r) => sum + Number(r.net_sales), 0) / list.length) * 100) / 100 : 0;
