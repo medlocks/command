@@ -11,6 +11,7 @@ import { GrowthRoadmapPage } from '@/modules/growth-roadmap';
 import { ChatPage } from '@/modules/chat';
 import { SettingsPage } from '@/modules/settings';
 import { StockPage } from '@/modules/stock';
+import { PricingPage } from '@/modules/pricing';
 import { ManualDataPage } from '@/modules/manual-data';
 import {
   ChatIcon,
@@ -113,6 +114,7 @@ export default function App() {
                 <Route path="/settings" element={<SettingsPage />} />
                 {/* Not in the tab bar — Section 7.2's 7-tab set is fixed; reachable via a link from Settings/Home instead (Section 13, Q18 — the real staff access path is still open). */}
                 <Route path="/stock" element={<StockPage />} />
+                <Route path="/pricing" element={<PricingPage />} />
                 <Route path="/data-import" element={<DataImportPage />} />
                 <Route path="/manual-data" element={<ManualDataPage />} />
               </Routes>

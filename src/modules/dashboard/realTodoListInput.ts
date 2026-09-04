@@ -13,6 +13,7 @@ import {
   type RankedRecommendation,
   type StockFlagTodoItem,
   type ReorderRecommendation,
+  type UnderpricedServiceFlag,
 } from '@/modules/insight-engine';
 import type { ServiceCategory } from '@/shared/types/warehouse';
 import {
@@ -21,6 +22,7 @@ import {
   fetchBlendedCacMonthly,
   fetchAveragePrices,
   fetchStockState,
+  fetchServiceProfitability,
 } from '@/modules/data-ingestion/warehouseReadClient';
 
 /** Mirrors `computeBlendedCac`'s own significant-change threshold (Requirements Section 13) — kept in sync by hand since Edge Functions/this real-data assembly layer don't share code with the mock deterministic layer. */
@@ -52,15 +54,20 @@ function addDaysIso(date: string, days: number): string {
  *     persisted anywhere yet (session-only UI state on the Marketing page),
  *     so guessing it here would mean silently picking types the owner never
  *     confirmed. Revisit once that selection has a real home.
- *   - `reviewResponseTrend`/`portfolioMixInsight`/`ctrGaps`/
- *     `serviceRankingGaps`/`underpricedServiceFlags`/`vacancyImpacts` —
- *     no real data source has been built for any of these yet (Section
- *     5.9/5.10/5.12, all still unscoped for this cutover).
+ *   - `reviewResponseTrend`/`ctrGaps`/`serviceRankingGaps`/
+ *     `vacancyImpacts` — no real data source has been built for any of
+ *     these yet (Section 5.9/5.10/5.12, all still unscoped for this
+ *     cutover).
  *   - `stockFlagItems`/`reorderRecommendations` — real as of 30 Aug 2026,
  *     from `stock_state` (Section 3.7/5.14) — this is what finally gets
  *     Mechanism 1/2 onto the real to-do list, closing a gap that sat open
  *     since the mechanisms themselves were built (real algorithm, mock
  *     data source until now).
+ *   - `underpricedServiceFlags`/`portfolioMixInsight` — real as of 4 Sep
+ *     2026, from `service_profitability` (Section 5.11) — same pattern:
+ *     the algorithm existed and was fully tested, just never wired to
+ *     real data or shown anywhere. Honestly empty until the owner enters
+ *     real services in Settings → Manual Data.
  * `lapseRisk[].serviceCategory` is set to a placeholder ('other') — the
  * real lapse-risk list carries Fresha's own raw category text, not the
  * app's internal enum, and the to-do list's lapse-risk candidate never
@@ -71,15 +78,16 @@ export async function buildRealTodoListCandidates(referenceDate: string): Promis
   unmatchedAppointmentCount: number;
   error: string | null;
 }> {
-  const [clientLists, stylistResult, cacMonthlyResult, pricesResult, stockResult] = await Promise.all([
+  const [clientLists, stylistResult, cacMonthlyResult, pricesResult, stockResult, serviceProfitabilityResult] = await Promise.all([
     fetchClientInsightLists(),
     fetchStylistProfitability(),
     fetchBlendedCacMonthly(),
     fetchAveragePrices(),
     fetchStockState(),
+    fetchServiceProfitability(),
   ]);
 
-  const errors = [clientLists, stylistResult, cacMonthlyResult, pricesResult, stockResult]
+  const errors = [clientLists, stylistResult, cacMonthlyResult, pricesResult, stockResult, serviceProfitabilityResult]
     .filter((r) => !r.ok)
     .map((r) => r.error)
     .filter((e): e is string => !!e);
@@ -156,13 +164,23 @@ export async function buildRealTodoListCandidates(referenceDate: string): Promis
     recentVelocityPerMonth: 0,
     historicalVelocityPerMonth: 0,
   };
-  const portfolioMixInsight: PortfolioMixInsight = {
+  const portfolioMixInsight: PortfolioMixInsight = serviceProfitabilityResult.portfolioMix ?? {
     topByVolume: [],
     bottomByProfit: [],
     overlapCount: 0,
     hasMisalignment: false,
     message: null,
   };
+
+  const underpricedServiceFlags: UnderpricedServiceFlag[] = (serviceProfitabilityResult.underpricedFlags ?? []).map((flag) => ({
+    rawServiceName: flag.rawServiceName,
+    profitPerChairHour: flag.profitPerChairHour,
+    salonMedianProfitPerChairHour: flag.salonMedianProfitPerChairHour,
+    deltaVsMedian: flag.deltaVsMedian,
+    suggestedPriceIncrease: flag.suggestedPriceIncrease,
+    isLowConfidence: flag.isLowConfidence,
+    bookingCount90d: flag.bookingCount90d,
+  }));
   const retailConversionTrend: RetailConversionTrend = {
     salonWide: [],
     salonAverageConversionPct: 0,
@@ -203,7 +221,7 @@ export async function buildRealTodoListCandidates(referenceDate: string): Promis
     ctrGaps: [],
     reviewResponseTrend,
     serviceRankingGaps: [],
-    underpricedServiceFlags: [],
+    underpricedServiceFlags,
     portfolioMixInsight,
     vacancyImpacts: [],
     stockFlagItems,

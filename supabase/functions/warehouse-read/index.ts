@@ -1291,6 +1291,152 @@ async function handleStockState(): Promise<Response> {
 }
 
 // ---------------------------------------------------------------------
+// service_profitability (Requirements Section 5.11, added 4 Sep 2026) —
+// real cutover of an algorithm that has existed, fully built and tested,
+// in `src/modules/insight-engine/deterministic/serviceProfitability.ts`
+// since before this round, but was never wired to real data or shown
+// anywhere — found while answering "do we already have pricing
+// analysis?" Reimplements that file's three functions fresh here (Edge
+// Functions don't share code with `src/`, same as everywhere else):
+// per-service profit-per-chair-hour, underpriced-service flags with a
+// concrete "raise the price by £X" figure, and a portfolio-mix check for
+// "your most-booked services are actually your least profitable."
+//
+// `services`/`service_categories` are manually seeded (Settings → Manual
+// Data → "Service catalog") — there is no live Fresha price-list export,
+// so this stays empty (and this query honestly returns empty arrays)
+// until the owner enters their real services there, same pattern as
+// `products` for Stock.
+// ---------------------------------------------------------------------
+
+const SERVICE_PROFITABILITY_WINDOW_DAYS = 90;
+/** Ignore services with too few bookings in the window to draw a pricing conclusion from — mirrors the `src/` original's own stated floor. */
+const MIN_BOOKINGS_TO_FLAG = 3;
+/** A service more than this far below the salon's median profit-per-chair-hour is a real pricing gap, not noise — a stated assumption (Requirements Section 13), same figure as the `src/` original. */
+const UNDERPRICED_GAP_PER_HOUR = 15;
+const PORTFOLIO_MIX_TOP_N = 3;
+const MISALIGNMENT_OVERLAP_FRACTION = 0.5;
+
+function median(values: readonly number[]): number {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0 ? (sorted[mid - 1]! + sorted[mid]!) / 2 : sorted[mid]!;
+}
+
+async function handleServiceProfitability(): Promise<Response> {
+  const referenceDate = new Date().toISOString().slice(0, 10);
+  const windowStart = addDays(referenceDate, -(SERVICE_PROFITABILITY_WINDOW_DAYS - 1));
+
+  const [
+    { data: services, error: servicesError },
+    { data: categories, error: categoriesError },
+    { data: activeStylists, error: stylistsError },
+    { data: wages, error: wagesError },
+    { data: appointments, error: apptError },
+  ] = await Promise.all([
+    supabase.from('services').select('raw_service_name, price, duration_minutes, estimated_product_cost, is_estimate'),
+    supabase.from('service_categories').select('raw_service_name, category'),
+    supabase.from('stylists').select('id').eq('employment_status', 'active'),
+    supabase.from('stylist_wages').select('stylist_id, hourly_rate, effective_from, effective_to'),
+    supabase
+      .from('fresha_appointments')
+      .select('service, client_name, scheduled_date')
+      .in('status', REAL_WORK_STATUSES)
+      .gte('scheduled_date', windowStart)
+      .lte('scheduled_date', referenceDate),
+  ]);
+  if (servicesError) return jsonResponse({ ok: false, error: servicesError.message }, 500);
+  if (categoriesError) return jsonResponse({ ok: false, error: categoriesError.message }, 500);
+  if (stylistsError) return jsonResponse({ ok: false, error: stylistsError.message }, 500);
+  if (wagesError) return jsonResponse({ ok: false, error: wagesError.message }, 500);
+  if (apptError) return jsonResponse({ ok: false, error: apptError.message }, 500);
+
+  const categoryByName = new Map((categories ?? []).map((c) => [c.raw_service_name, c.category as string]));
+  const stylistList = activeStylists ?? [];
+  const avgHourlyRate =
+    stylistList.length > 0
+      ? stylistList.reduce((sum, s) => sum + resolveCurrentWage(wages ?? [], s.id, referenceDate), 0) / stylistList.length
+      : 0;
+
+  const bookingCounts = new Map<string, number>();
+  for (const a of appointments ?? []) {
+    if (a.client_name && INTERNAL_BLOCK_CLIENT_NAMES.has(a.client_name)) continue;
+    if (!a.service) continue;
+    bookingCounts.set(a.service, (bookingCounts.get(a.service) ?? 0) + 1);
+  }
+
+  const profitability = (services ?? []).map((s) => {
+    const durationHours = s.duration_minutes / 60;
+    const wageCost = durationHours > 0 ? avgHourlyRate * durationHours : 0;
+    const productCost = s.estimated_product_cost !== null ? Number(s.estimated_product_cost) : 0;
+    const profitPerChairHour = durationHours > 0 ? (Number(s.price) - productCost - wageCost) / durationHours : 0;
+
+    return {
+      rawServiceName: s.raw_service_name as string,
+      category: categoryByName.get(s.raw_service_name) ?? 'other',
+      price: Number(s.price),
+      durationMinutes: s.duration_minutes as number,
+      estimatedProductCost: s.estimated_product_cost !== null ? Number(s.estimated_product_cost) : null,
+      isEstimate: s.is_estimate as boolean,
+      wageCost: Math.round(wageCost * 100) / 100,
+      profitPerChairHour: Math.round(profitPerChairHour * 100) / 100,
+      bookingCount90d: bookingCounts.get(s.raw_service_name) ?? 0,
+    };
+  });
+
+  const salonMedianProfitPerChairHour = median(profitability.map((p) => p.profitPerChairHour));
+
+  const underpricedFlags = profitability
+    .filter((p) => p.bookingCount90d >= MIN_BOOKINGS_TO_FLAG)
+    .filter((p) => salonMedianProfitPerChairHour - p.profitPerChairHour > UNDERPRICED_GAP_PER_HOUR)
+    .map((p) => {
+      const deltaVsMedian = p.profitPerChairHour - salonMedianProfitPerChairHour;
+      const durationHours = p.durationMinutes / 60;
+      const suggestedPriceIncrease = Math.round(Math.abs(deltaVsMedian) * durationHours);
+      return {
+        rawServiceName: p.rawServiceName,
+        profitPerChairHour: p.profitPerChairHour,
+        salonMedianProfitPerChairHour,
+        deltaVsMedian,
+        suggestedPriceIncrease,
+        isLowConfidence: p.isEstimate,
+        bookingCount90d: p.bookingCount90d,
+      };
+    })
+    .sort((a, b) => a.deltaVsMedian - b.deltaVsMedian);
+
+  const withBookings = profitability.filter((p) => p.bookingCount90d > 0);
+  const n = Math.min(PORTFOLIO_MIX_TOP_N, withBookings.length);
+  let portfolioMix: {
+    topByVolume: string[];
+    bottomByProfit: string[];
+    overlapCount: number;
+    hasMisalignment: boolean;
+    message: string | null;
+  };
+  if (n === 0) {
+    portfolioMix = { topByVolume: [], bottomByProfit: [], overlapCount: 0, hasMisalignment: false, message: null };
+  } else {
+    const byVolumeDesc = [...withBookings].sort((a, b) => b.bookingCount90d - a.bookingCount90d);
+    const byProfitAsc = [...withBookings].sort((a, b) => a.profitPerChairHour - b.profitPerChairHour);
+    const topByVolume = byVolumeDesc.slice(0, n).map((p) => p.rawServiceName);
+    const bottomByProfit = byProfitAsc.slice(0, n).map((p) => p.rawServiceName);
+    const overlapCount = topByVolume.filter((name) => bottomByProfit.includes(name)).length;
+    const hasMisalignment = overlapCount / n >= MISALIGNMENT_OVERLAP_FRACTION;
+    let message: string | null = null;
+    if (overlapCount === n) {
+      message = `Your top ${n} services by volume are actually your bottom ${n} by profit-per-hour: ${topByVolume.join(', ')}.`;
+    } else if (hasMisalignment) {
+      message = `${overlapCount} of your top ${n} most-booked services (${topByVolume.join(', ')}) are also among your least profitable per chair-hour — worth a pricing review.`;
+    }
+    portfolioMix = { topByVolume, bottomByProfit, overlapCount, hasMisalignment, message };
+  }
+
+  return jsonResponse({ ok: true, services: profitability, underpricedFlags, portfolioMix, salonMedianProfitPerChairHour });
+}
+
+// ---------------------------------------------------------------------
 // recommendations_current
 // ---------------------------------------------------------------------
 
@@ -1342,6 +1488,7 @@ interface RequestBody {
     | 'recommendations_current'
     | 'stylist_leave_list'
     | 'stock_state'
+    | 'service_profitability'
     | 'service_names_list'
     | 'industry_benchmarks_list';
   retailTypeNames?: string[];
@@ -1404,6 +1551,8 @@ Deno.serve(async (req) => {
       return handleStylistLeaveList(body.stylistId);
     case 'stock_state':
       return handleStockState();
+    case 'service_profitability':
+      return handleServiceProfitability();
     case 'service_names_list':
       return handleServiceNamesList();
     case 'industry_benchmarks_list':

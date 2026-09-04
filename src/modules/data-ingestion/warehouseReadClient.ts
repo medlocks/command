@@ -364,6 +364,50 @@ export function fetchStockState(): Promise<StockStateResult> {
   return callFunction({ query: 'stock_state' });
 }
 
+export interface ServiceProfitabilityRow {
+  rawServiceName: string;
+  category: string;
+  price: number;
+  durationMinutes: number;
+  estimatedProductCost: number | null;
+  isEstimate: boolean;
+  wageCost: number;
+  profitPerChairHour: number;
+  bookingCount90d: number;
+}
+
+export interface ServiceUnderpricedFlag {
+  rawServiceName: string;
+  profitPerChairHour: number;
+  salonMedianProfitPerChairHour: number;
+  deltaVsMedian: number;
+  suggestedPriceIncrease: number;
+  isLowConfidence: boolean;
+  bookingCount90d: number;
+}
+
+export interface ServicePortfolioMix {
+  topByVolume: string[];
+  bottomByProfit: string[];
+  overlapCount: number;
+  hasMisalignment: boolean;
+  message: string | null;
+}
+
+export interface ServiceProfitabilityResult {
+  ok: boolean;
+  services?: ServiceProfitabilityRow[];
+  underpricedFlags?: ServiceUnderpricedFlag[];
+  portfolioMix?: ServicePortfolioMix;
+  salonMedianProfitPerChairHour?: number;
+  error?: string;
+}
+
+/** Real cutover of the pricing-analysis algorithm (added 4 Sep 2026) — profit-per-chair-hour per service, underpriced-service flags, and portfolio-mix check. Honestly empty until real services exist (Settings → Manual Data → "Service catalog") — there's no live Fresha price-list export to seed this from. */
+export function fetchServiceProfitability(): Promise<ServiceProfitabilityResult> {
+  return callFunction({ query: 'service_profitability' });
+}
+
 export interface ServiceNamesListResult {
   ok: boolean;
   serviceNames?: string[];

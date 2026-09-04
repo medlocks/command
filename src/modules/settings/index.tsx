@@ -54,6 +54,20 @@ export function SettingsPage() {
           <span className="shrink-0 text-[var(--color-ink-muted)]">→</span>
         </Card>
       </Link>
+      <Link to="/pricing" className="block">
+        <Card className="flex items-center justify-between transition-shadow hover:shadow-md active:shadow-sm">
+          <div>
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-[var(--color-ink-muted)]">
+              Pricing Analysis
+            </h2>
+            <p className="mt-1 text-sm text-[var(--color-ink-secondary)]">
+              Profit per chair-hour per service (Section 5.11) — flags anything sitting well below your own median,
+              with a suggested price increase.
+            </p>
+          </div>
+          <span className="shrink-0 text-[var(--color-ink-muted)]">→</span>
+        </Card>
+      </Link>
       <Link to="/data-import" className="block">
         <Card className="flex items-center justify-between transition-shadow hover:shadow-md active:shadow-sm">
           <div>
