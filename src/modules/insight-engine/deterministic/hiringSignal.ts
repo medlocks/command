@@ -32,6 +32,8 @@ export interface HiringSignal {
   confidence: IndicatorConfidence;
   currentValues: HiringSignalValues;
   reasoning: string;
+  /** What actually moves this signal forward (added 4 Sep 2026) — same "next step" treatment as the Growth Roadmap's capacity stage, computed from the same currentValues, not generic advice. */
+  nextStep: string;
 }
 
 /** "Consistently near full capacity," not one busy week — Requirements Section 5.13's own framing. A stated threshold (Section 13), not "the AI decides." */
@@ -87,6 +89,26 @@ function buildReasoning(status: IndicatorStatus, values: HiringSignalValues): st
   }
   const supporting = supportingClauses.length > 0 ? `; ${supportingClauses.join('; ')}` : '';
   return `Strong case to hire — ${capacityClause}${supporting}. ${waitlistCaveat}`;
+}
+
+/** Same "next step" treatment as the Growth Roadmap's capacity stage — what actually moves this signal forward, computed from the same values `buildReasoning` uses, not generic advice. */
+function buildNextStep(status: IndicatorStatus, values: HiringSignalValues): string {
+  if (status === 'caution') {
+    return `Utilization has real headroom right now — no case to hire yet. Revisit once bookings pick back up.`;
+  }
+
+  if (status === 'strong') {
+    return `This is a strong, sustained case — draft a job post from Home when you're ready to start hiring.`;
+  }
+
+  // status === 'neutral'
+  if (values.isSustainedHighUtilization) {
+    return `Capacity is already sustained high — this becomes a strong case the moment growth stalls or ad spend stops converting into new clients efficiently. Nothing to act on yet beyond watching Marketing's CAC trend.`;
+  }
+
+  const minWeeksAtHighUtilization = Math.max(values.sustainedWindowWeeks - 1, 0);
+  const moreWeeksNeeded = Math.max(minWeeksAtHighUtilization - values.weeksAtHighUtilization, 0);
+  return `${values.weeksAtHighUtilization} of the last ${values.sustainedWindowWeeks} weeks have hit ${Math.round(HIGH_UTILIZATION_THRESHOLD * 100)}%+ utilization — ${moreWeeksNeeded} more would make this a sustained case worth acting on.`;
 }
 
 /**
@@ -180,6 +202,7 @@ export function buildHiringSignal(input: {
     confidence,
     currentValues,
     reasoning: buildReasoning(status, currentValues),
+    nextStep: buildNextStep(status, currentValues),
   };
 }
 

@@ -15,6 +15,8 @@ export interface DisplayableSignal {
   trend: IndicatorTrend;
   confidence: IndicatorConfidence;
   reasoning: string;
+  /** What actually moves this signal forward — same "next step" treatment as the Growth Roadmap's stage cards (added 4 Sep 2026). */
+  nextStep: string;
 }
 
 /** Deliberately not a red/amber/green triad — status here is a strategic read, not an emergency (Requirements Section 5.13). */
@@ -71,6 +73,10 @@ function StrongSignalCard({ signal }: { signal: DisplayableSignal }) {
       {expanded && (
         <div className="border-t border-[var(--color-border)] px-4 py-3">
           <p className="text-sm text-[var(--color-ink-secondary)]">{signal.reasoning}</p>
+          <div className="mt-3 rounded-lg border-l-2 py-1 pl-3" style={{ borderColor: 'var(--color-accent-strong)' }}>
+            <p className="text-[11px] font-semibold tracking-wide text-[var(--color-ink-muted)] uppercase">Next step</p>
+            <p className="mt-0.5 text-sm text-[var(--color-ink)]">{signal.nextStep}</p>
+          </div>
         </div>
       )}
     </Card>
@@ -102,6 +108,10 @@ function QuietSignalCard({ signal }: { signal: DisplayableSignal }) {
       {expanded && (
         <div className="border-t border-[var(--color-border)] px-4 py-3">
           <p className="text-sm text-[var(--color-ink-secondary)]">{signal.reasoning}</p>
+          <div className="mt-3 rounded-lg border-l-2 py-1 pl-3" style={{ borderColor: status.color }}>
+            <p className="text-[11px] font-semibold tracking-wide text-[var(--color-ink-muted)] uppercase">Next step</p>
+            <p className="mt-0.5 text-sm text-[var(--color-ink)]">{signal.nextStep}</p>
+          </div>
         </div>
       )}
     </Card>

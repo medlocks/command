@@ -53,6 +53,7 @@ describe('computeHiringSignal', () => {
     expect(signal.trend).toBe('stable');
     expect(signal.currentValues.waitlistDataAvailable).toBe(false);
     expect(signal.reasoning).toContain('Strong case to hire');
+    expect(signal.nextStep).toContain('draft a job post');
   });
 
   it('flags strong via CAC-being-wasted even when revenue is growing well (not flattening)', () => {
@@ -116,6 +117,7 @@ describe('computeHiringSignal', () => {
     expect(signal.currentValues.isRevenueFlatteningAtCapacity).toBe(false);
     expect(signal.currentValues.isCacBeingWastedAtCapacity).toBe(false);
     expect(signal.status).toBe('neutral');
+    expect(signal.nextStep).toContain('already sustained high');
   });
 
   it('is neutral when utilization is moderate — neither stretched nor comfortably spare', () => {
@@ -132,6 +134,7 @@ describe('computeHiringSignal', () => {
 
     expect(signal.currentValues.isSustainedHighUtilization).toBe(false);
     expect(signal.status).toBe('neutral');
+    expect(signal.nextStep).toMatch(/more would make this a sustained case/);
   });
 
   it('flags caution when there is comfortable spare capacity', () => {
@@ -148,6 +151,7 @@ describe('computeHiringSignal', () => {
 
     expect(signal.status).toBe('caution');
     expect(signal.reasoning).toContain('spare capacity');
+    expect(signal.nextStep).toContain('no case to hire yet');
   });
 
   it('never reaches high confidence — waitlist data is structurally unavailable in this build', () => {
