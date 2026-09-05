@@ -1618,7 +1618,7 @@ async function handleRetailSkuCosts(): Promise<Response> {
   ] = await Promise.all([
     supabase
       .from('retail_skus')
-      .select('id, name, description, in_salon_price, online_price, shipping_packaging_cost, wholesale_discount_pct, is_active')
+      .select('id, name, description, in_salon_price, online_price, shipping_packaging_cost, wholesale_discount_pct, weekly_capacity_units, capacity_scale_note, is_active')
       .order('name'),
     supabase.from('retail_ingredients').select('id, name, purchase_price, purchase_quantity, unit, notes').order('name'),
     supabase.from('retail_recipe_items').select('id, sku_id, ingredient_id, quantity_used'),
@@ -1689,6 +1689,15 @@ async function handleRetailSkuCosts(): Promise<Response> {
       wholesaleNextStep = `Not wholesale-ready yet at this ${Math.round(wholesaleDiscountPct * 100)}% discount — production cost would need to drop by roughly ${currencyRound(Math.max(costGap, 0))}, or the online price would need to rise to about ${currencyRound(requiredOnlinePrice)}, to clear a healthy ${Math.round(WHOLESALE_HEALTHY_MARGIN_PCT * 100)}% wholesale margin.`;
     }
 
+    // Production capacity (added 5 Sep 2026) — a real, owner-supplied
+    // ceiling, not derived from anything else. Deliberately no
+    // "% of capacity used" figure yet: that would need real order-volume
+    // data (Shopify sync), which doesn't exist yet — see capacityScaleNote
+    // for what happens if/when demand exceeds this ceiling.
+    const weeklyCapacityUnits: number | null = sku.weekly_capacity_units !== null ? Number(sku.weekly_capacity_units) : null;
+    const monthlyCapacityUnits: number | null = weeklyCapacityUnits !== null ? Math.round(weeklyCapacityUnits * (365 / 12 / 7)) : null;
+    const capacityScaleNote: string | null = sku.capacity_scale_note ?? null;
+
     return {
       skuId: sku.id as string,
       name: sku.name as string,
@@ -1710,6 +1719,9 @@ async function handleRetailSkuCosts(): Promise<Response> {
       wholesaleMarginPct,
       isWholesaleReady,
       wholesaleNextStep,
+      weeklyCapacityUnits,
+      monthlyCapacityUnits,
+      capacityScaleNote,
     };
   });
 

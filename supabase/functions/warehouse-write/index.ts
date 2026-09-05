@@ -1354,6 +1354,10 @@ interface RetailSkuPayload {
   shippingPackagingCost?: number | null;
   /** % off online_price a wholesale/retail partner would expect (added 5 Sep 2026) — 0.5 = 50% off. Defaults to 0.5 in the schema (a stated, editable assumption) if omitted. */
   wholesaleDiscountPct?: number | null;
+  /** Real weekly production ceiling at current effort (added 5 Sep 2026), e.g. 200 bottles/week hand-mixed part-time. */
+  weeklyCapacityUnits?: number | null;
+  /** Free-text note on what happens past the weekly ceiling, in the owner's own words (e.g. "can go full-time and scale into the 1000s/week") rather than a fabricated second capacity number. */
+  capacityScaleNote?: string | null;
 }
 
 async function handleRetailSkuCommit(payload: unknown): Promise<Response> {
@@ -1366,6 +1370,11 @@ async function handleRetailSkuCommit(payload: unknown): Promise<Response> {
       return jsonResponse({ ok: false, error: 'wholesaleDiscountPct must be between 0 and 1 (e.g. 0.5 for 50% off)' }, 400);
     }
   }
+  if (p.weeklyCapacityUnits !== undefined && p.weeklyCapacityUnits !== null) {
+    if (typeof p.weeklyCapacityUnits !== 'number' || !Number.isFinite(p.weeklyCapacityUnits) || p.weeklyCapacityUnits < 0) {
+      return jsonResponse({ ok: false, error: 'weeklyCapacityUnits must be a non-negative number' }, 400);
+    }
+  }
 
   const insertRow: Record<string, unknown> = {
     name: p.name.trim(),
@@ -1375,6 +1384,8 @@ async function handleRetailSkuCommit(payload: unknown): Promise<Response> {
     shipping_packaging_cost: p.shippingPackagingCost ?? null,
   };
   if (p.wholesaleDiscountPct !== undefined && p.wholesaleDiscountPct !== null) insertRow.wholesale_discount_pct = p.wholesaleDiscountPct;
+  if (p.weeklyCapacityUnits !== undefined) insertRow.weekly_capacity_units = p.weeklyCapacityUnits;
+  if (p.capacityScaleNote !== undefined) insertRow.capacity_scale_note = p.capacityScaleNote;
 
   const { data, error } = await supabase.from('retail_skus').insert(insertRow).select('id').single();
   if (error) return jsonResponse({ ok: false, error: error.message }, 500);
@@ -1408,6 +1419,13 @@ async function handleRetailSkuUpdate(payload: unknown): Promise<Response> {
     }
     fields.wholesale_discount_pct = p.wholesaleDiscountPct;
   }
+  if (p.weeklyCapacityUnits !== undefined) {
+    if (p.weeklyCapacityUnits !== null && (typeof p.weeklyCapacityUnits !== 'number' || !Number.isFinite(p.weeklyCapacityUnits) || p.weeklyCapacityUnits < 0)) {
+      return jsonResponse({ ok: false, error: 'weeklyCapacityUnits must be a non-negative number' }, 400);
+    }
+    fields.weekly_capacity_units = p.weeklyCapacityUnits;
+  }
+  if (p.capacityScaleNote !== undefined) fields.capacity_scale_note = p.capacityScaleNote;
   if (p.isActive !== undefined) fields.is_active = p.isActive;
   if (Object.keys(fields).length === 0) return jsonResponse({ ok: false, error: 'Nothing to update' }, 400);
   fields.updated_at = new Date().toISOString();

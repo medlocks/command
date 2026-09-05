@@ -359,6 +359,68 @@ function WholesaleReadiness({ sku, onChanged }: { sku: RetailSkuCost; onChanged:
   );
 }
 
+/**
+ * Production capacity (added 5 Sep 2026) — a real, owner-supplied ceiling,
+ * not derived from anything else. Deliberately shows no "% of capacity
+ * used" figure: that would need real order-volume data (a Shopify sync
+ * that doesn't exist yet), so it would be a fabricated precision this
+ * calculator otherwise avoids. The scale note is free text in the
+ * owner's own words rather than a second invented capacity number.
+ */
+function ProductionCapacity({ sku, onChanged }: { sku: RetailSkuCost; onChanged: () => void }) {
+  const [weeklyUnits, setWeeklyUnits] = useState(sku.weeklyCapacityUnits !== null ? String(sku.weeklyCapacityUnits) : '');
+  const [scaleNote, setScaleNote] = useState(sku.capacityScaleNote ?? '');
+  const [isSaving, setIsSaving] = useState(false);
+
+  const isDirty = weeklyUnits !== (sku.weeklyCapacityUnits !== null ? String(sku.weeklyCapacityUnits) : '') || scaleNote !== (sku.capacityScaleNote ?? '');
+  const weeklyNum = Number(weeklyUnits);
+  const canSave = weeklyUnits === '' || (Number.isFinite(weeklyNum) && weeklyNum >= 0);
+
+  async function handleSave() {
+    if (!canSave) return;
+    setIsSaving(true);
+    try {
+      const res = await updateRetailSku({
+        id: sku.skuId,
+        weeklyCapacityUnits: weeklyUnits === '' ? null : weeklyNum,
+        capacityScaleNote: scaleNote.trim() === '' ? null : scaleNote.trim(),
+      });
+      if (res.ok) onChanged();
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  return (
+    <div className="mt-3 border-t border-[var(--color-border)] pt-3">
+      <p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-ink-muted)]">Production capacity</p>
+      <div className="mt-2 flex items-end gap-2">
+        <div className="w-32">
+          <label className="mb-1 block text-xs font-medium text-[var(--color-ink-muted)]">Units/week (current)</label>
+          <input type="number" min="0" step="1" value={weeklyUnits} onChange={(event) => setWeeklyUnits(event.target.value)} className={INPUT_CLASSES} />
+        </div>
+        {sku.monthlyCapacityUnits !== null && (
+          <p className="pb-2 text-xs text-[var(--color-ink-muted)]">≈ {sku.monthlyCapacityUnits}/month at this rate</p>
+        )}
+      </div>
+      <div className="mt-2">
+        <label className="mb-1 block text-xs font-medium text-[var(--color-ink-muted)]">What happens beyond that ceiling (optional)</label>
+        <input
+          value={scaleNote}
+          onChange={(event) => setScaleNote(event.target.value)}
+          placeholder="e.g. Can go full-time and scale into the 1000s/week if demand requires it"
+          className={INPUT_CLASSES}
+        />
+      </div>
+      {isDirty && (
+        <Button type="button" variant="secondary" className="mt-2 !px-3 !py-2 text-xs" disabled={!canSave || isSaving} onClick={() => void handleSave()}>
+          {isSaving ? 'Saving…' : 'Save'}
+        </Button>
+      )}
+    </div>
+  );
+}
+
 function SkuCard({ sku, ingredients, onChanged }: { sku: RetailSkuCost; ingredients: RetailIngredient[]; onChanged: () => void }) {
   return (
     <Card>
@@ -389,6 +451,7 @@ function SkuCard({ sku, ingredients, onChanged }: { sku: RetailSkuCost; ingredie
       </div>
 
       <WholesaleReadiness sku={sku} onChanged={onChanged} />
+      <ProductionCapacity sku={sku} onChanged={onChanged} />
       <RecipeBuilder sku={sku} ingredients={ingredients} onChanged={onChanged} />
     </Card>
   );

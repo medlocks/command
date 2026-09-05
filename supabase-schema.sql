@@ -994,6 +994,14 @@ create table public.retail_skus (
   -- (same "stated assumption, not hidden" pattern as TARGET_MARGIN_PCT
   -- elsewhere), editable per SKU as real wholesale terms become known.
   wholesale_discount_pct numeric(5,4) not null default 0.5,
+  -- Added 5 Sep 2026 — real production ceiling at Blake's current
+  -- (part-time, hand-mixing) effort level, and a free-text note on what
+  -- happens beyond it, in his own words rather than a fabricated second
+  -- number: he can go full-time and scale into the "1000s/week" once
+  -- demand requires it, but that's a step-change decision, not a fixed
+  -- ceiling to compute against.
+  weekly_capacity_units integer,
+  capacity_scale_note text,
   is_active boolean not null default true,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()

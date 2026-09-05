@@ -521,6 +521,10 @@ export interface RetailSkuCost {
   wholesaleMarginPct: number | null;
   isWholesaleReady: boolean | null;
   wholesaleNextStep: string;
+  /** Real production ceiling at current effort (added 5 Sep 2026) — null until entered. No "% of capacity used" field: that needs real order-volume data (Shopify sync) that doesn't exist yet. */
+  weeklyCapacityUnits: number | null;
+  monthlyCapacityUnits: number | null;
+  capacityScaleNote: string | null;
 }
 
 export interface RetailSkuCostsResult {

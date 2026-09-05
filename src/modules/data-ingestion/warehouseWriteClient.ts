@@ -330,6 +330,10 @@ export function commitRetailSku(payload: {
   shippingPackagingCost?: number | null;
   /** % off online price a wholesale/retail partner would expect (added 5 Sep 2026) — 0.5 = 50% off. Defaults to 0.5 server-side if omitted. */
   wholesaleDiscountPct?: number | null;
+  /** Real weekly production ceiling at current effort (added 5 Sep 2026). */
+  weeklyCapacityUnits?: number | null;
+  /** Free-text note on what happens past the weekly ceiling, in the owner's own words. */
+  capacityScaleNote?: string | null;
 }): Promise<WarehouseWriteResult> {
   return callFunction({ entity: 'retail_skus', action: 'commit', payload });
 }
@@ -342,6 +346,8 @@ export function updateRetailSku(payload: {
   onlinePrice?: number | null;
   shippingPackagingCost?: number | null;
   wholesaleDiscountPct?: number | null;
+  weeklyCapacityUnits?: number | null;
+  capacityScaleNote?: string | null;
   isActive?: boolean;
 }): Promise<WarehouseWriteResult> {
   return callFunction({ entity: 'retail_skus', action: 'update', payload });
