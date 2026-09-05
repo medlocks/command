@@ -338,6 +338,11 @@ export function commitRetailSku(payload: {
   return callFunction({ entity: 'retail_skus', action: 'commit', payload });
 }
 
+/** Sets completion state for one UK cosmetic-product legal-readiness step on a SKU. `stepKey` must be one of the fixed keys `warehouse-write` recognises. */
+export function setRetailComplianceStep(payload: { skuId: string; stepKey: string; completed: boolean; notes?: string | null }): Promise<WarehouseWriteResult> {
+  return callFunction({ entity: 'retail_compliance_steps', action: 'commit', payload });
+}
+
 export function updateRetailSku(payload: {
   id: string;
   name?: string;

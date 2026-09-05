@@ -1615,6 +1615,7 @@ async function handleRetailSkuCosts(): Promise<Response> {
     { data: skus, error: skusError },
     { data: ingredients, error: ingredientsError },
     { data: recipeItems, error: recipeError },
+    { data: complianceRows, error: complianceError },
   ] = await Promise.all([
     supabase
       .from('retail_skus')
@@ -1622,10 +1623,12 @@ async function handleRetailSkuCosts(): Promise<Response> {
       .order('name'),
     supabase.from('retail_ingredients').select('id, name, purchase_price, purchase_quantity, unit, notes').order('name'),
     supabase.from('retail_recipe_items').select('id, sku_id, ingredient_id, quantity_used'),
+    supabase.from('retail_compliance_steps').select('sku_id, step_key, completed_at, notes'),
   ]);
   if (skusError) return jsonResponse({ ok: false, error: skusError.message }, 500);
   if (ingredientsError) return jsonResponse({ ok: false, error: ingredientsError.message }, 500);
   if (recipeError) return jsonResponse({ ok: false, error: recipeError.message }, 500);
+  if (complianceError) return jsonResponse({ ok: false, error: complianceError.message }, 500);
 
   const ingredientById = new Map((ingredients ?? []).map((i) => [i.id, i]));
 
@@ -1714,6 +1717,14 @@ async function handleRetailSkuCosts(): Promise<Response> {
     const monthlyCapacityUnits: number | null = weeklyCapacityUnits !== null ? Math.round(weeklyCapacityUnits * (365 / 12 / 7)) : null;
     const capacityScaleNote: string | null = sku.capacity_scale_note ?? null;
 
+    // UK cosmetic-product legal readiness (added 6 Sep 2026) — real
+    // completion state only; the fixed step list itself (title,
+    // description, source) lives in frontend code as sourced regulatory
+    // fact, not owner data.
+    const complianceSteps = (complianceRows ?? [])
+      .filter((c) => c.sku_id === sku.id)
+      .map((c) => ({ stepKey: c.step_key as string, completedAt: c.completed_at as string | null, notes: c.notes as string | null }));
+
     return {
       skuId: sku.id as string,
       name: sku.name as string,
@@ -1740,6 +1751,7 @@ async function handleRetailSkuCosts(): Promise<Response> {
       weeklyCapacityUnits,
       monthlyCapacityUnits,
       capacityScaleNote,
+      complianceSteps,
     };
   });
 

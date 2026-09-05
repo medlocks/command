@@ -13,6 +13,7 @@ import {
   commitRetailSku,
   removeRetailIngredient,
   removeRetailRecipeItem,
+  setRetailComplianceStep,
   updateRetailSku,
   type WarehouseWriteResult,
 } from '@/modules/data-ingestion/warehouseWriteClient';
@@ -442,6 +443,110 @@ function ProductionCapacity({ sku, onChanged }: { sku: RetailSkuCost; onChanged:
   );
 }
 
+/**
+ * UK cosmetic-product legal readiness (added 6 Sep 2026) — selling a
+ * cosmetic in Great Britain has real, non-optional legal requirements
+ * (Cosmetic Products Enforcement Regulations 2013 / the Office for
+ * Product Safety and Standards' SCPN regime) that most small makers only
+ * discover partway through launch. These 7 steps and their descriptions
+ * are sourced regulatory fact, not owner data — hence hardcoded here
+ * rather than stored — only each step's completion is real, editable
+ * state. This app can't complete any of these for Blake (a CPSR needs a
+ * qualified safety assessor, SCPN needs a real submission), but it can
+ * make sure none gets forgotten.
+ */
+const COMPLIANCE_STEPS: { key: string; title: string; description: string }[] = [
+  {
+    key: 'stability_testing',
+    title: 'Stability testing',
+    description: 'A minimum ~12-week stability study showing the formula stays safe and effective over its shelf life.',
+  },
+  {
+    key: 'preservative_efficacy_testing',
+    title: 'Preservative efficacy testing (PET)',
+    description: 'Required for water-containing products. A fully anhydrous (water-free) formula is typically exempt — confirm with your safety assessor.',
+  },
+  {
+    key: 'cpsr',
+    title: 'Cosmetic Product Safety Report (CPSR)',
+    description: 'A legally required safety assessment completed by a qualified safety assessor (pharmacy, toxicology, or medical background) — not optional, and everything else below depends on it.',
+  },
+  {
+    key: 'product_information_file',
+    title: 'Product Information File (PIF)',
+    description: "The compiled dossier — formula, manufacturing method, the CPSR, testing evidence — kept up to date for as long as the product is sold.",
+  },
+  {
+    key: 'responsible_person',
+    title: 'UK Responsible Person',
+    description: 'A UK-based person or company legally accountable for the product’s compliance — this can be you, if you’re UK-based.',
+  },
+  {
+    key: 'scpn_notification',
+    title: 'SCPN notification',
+    description: "Registering the product via the Office for Product Safety and Standards' Submit Cosmetic Product Notification portal — required before it can be sold in Great Britain.",
+  },
+  {
+    key: 'label_compliance',
+    title: 'Label compliance',
+    description: 'Full ingredient list (INCI names), product function, warnings, period-after-opening symbol, batch number, and Responsible Person contact details on the label.',
+  },
+];
+
+function ComplianceChecklist({ sku, onChanged }: { sku: RetailSkuCost; onChanged: () => void }) {
+  const stateByKey = new Map(sku.complianceSteps.map((s) => [s.stepKey, s]));
+  const completedCount = COMPLIANCE_STEPS.filter((step) => stateByKey.get(step.key)?.completedAt).length;
+  const [expanded, setExpanded] = useState(false);
+  const [savingKey, setSavingKey] = useState<string | null>(null);
+
+  async function handleToggle(stepKey: string, completed: boolean) {
+    setSavingKey(stepKey);
+    try {
+      const res = await setRetailComplianceStep({ skuId: sku.skuId, stepKey, completed });
+      if (res.ok) onChanged();
+    } finally {
+      setSavingKey(null);
+    }
+  }
+
+  return (
+    <div className="mt-3 border-t border-[var(--color-border)] pt-3">
+      <button type="button" onClick={() => setExpanded((v) => !v)} className="flex w-full items-center justify-between gap-2 text-left">
+        <p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-ink-muted)]">Legal readiness to sell (UK)</p>
+        <span className="text-xs font-medium text-[var(--color-ink-muted)]">
+          {completedCount}/{COMPLIANCE_STEPS.length} {expanded ? '▲' : '▼'}
+        </span>
+      </button>
+      {expanded && (
+        <ul className="mt-2 space-y-2">
+          {COMPLIANCE_STEPS.map((step) => {
+            const state = stateByKey.get(step.key);
+            const isDone = Boolean(state?.completedAt);
+            return (
+              <li key={step.key} className="flex items-start gap-2">
+                <input
+                  type="checkbox"
+                  checked={isDone}
+                  disabled={savingKey === step.key}
+                  onChange={(event) => void handleToggle(step.key, event.target.checked)}
+                  className="mt-0.5 h-4 w-4 shrink-0 rounded border-[var(--color-border)]"
+                />
+                <div>
+                  <p className={`text-sm font-medium ${isDone ? 'text-[var(--color-ink-muted)] line-through' : 'text-[var(--color-ink)]'}`}>{step.title}</p>
+                  <p className="text-xs text-[var(--color-ink-muted)]">{step.description}</p>
+                </div>
+              </li>
+            );
+          })}
+          <li className="pt-1 text-[11px] text-[var(--color-ink-muted)]">
+            This app can't complete any of these for you (a CPSR needs a qualified safety assessor; SCPN needs a real submission) — it just makes sure none gets forgotten before launch.
+          </li>
+        </ul>
+      )}
+    </div>
+  );
+}
+
 function SkuCard({ sku, ingredients, onChanged }: { sku: RetailSkuCost; ingredients: RetailIngredient[]; onChanged: () => void }) {
   return (
     <Card>
@@ -473,6 +578,7 @@ function SkuCard({ sku, ingredients, onChanged }: { sku: RetailSkuCost; ingredie
 
       <WholesaleReadiness sku={sku} onChanged={onChanged} />
       <ProductionCapacity sku={sku} onChanged={onChanged} />
+      <ComplianceChecklist sku={sku} onChanged={onChanged} />
       <RecipeBuilder sku={sku} ingredients={ingredients} onChanged={onChanged} />
     </Card>
   );

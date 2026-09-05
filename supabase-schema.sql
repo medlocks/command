@@ -1019,15 +1019,37 @@ create table public.retail_recipe_items (
   unique (sku_id, ingredient_id) -- re-adding the same ingredient to a recipe updates its quantity, not a duplicate line
 );
 
+-- Real UK cosmetic-product legal requirements before a product can be sold
+-- (added 6 Sep 2026) — sourced from the Office for Product Safety and
+-- Standards' SCPN regime (UK Cosmetic Products Enforcement Regulations
+-- 2013): stability testing, preservative efficacy testing, a CPSR from a
+-- qualified safety assessor, a Product Information File, a UK Responsible
+-- Person, SCPN notification, and compliant labelling. The fixed step
+-- definitions (title/description) live in frontend code as real,
+-- source-cited facts, not owner data — this table only tracks completion
+-- per SKU, since the same product only needs each step done once.
+create table public.retail_compliance_steps (
+  id uuid primary key default gen_random_uuid(),
+  sku_id uuid not null references public.retail_skus(id) on delete cascade,
+  step_key text not null,
+  completed_at timestamptz,
+  notes text,
+  updated_at timestamptz not null default now(),
+  unique (sku_id, step_key)
+);
+
 alter table public.retail_ingredients enable row level security;
 alter table public.retail_skus enable row level security;
 alter table public.retail_recipe_items enable row level security;
+alter table public.retail_compliance_steps enable row level security;
 
 create policy "owner_manager_retail_ingredients" on public.retail_ingredients
   for all using (public.current_user_role() in ('owner', 'manager', 'admin'));
 create policy "owner_manager_retail_skus" on public.retail_skus
   for all using (public.current_user_role() in ('owner', 'manager', 'admin'));
 create policy "owner_manager_retail_recipe_items" on public.retail_recipe_items
+  for all using (public.current_user_role() in ('owner', 'manager', 'admin'));
+create policy "owner_manager_retail_compliance_steps" on public.retail_compliance_steps
   for all using (public.current_user_role() in ('owner', 'manager', 'admin'));
 
 -- =====================================================================

@@ -1472,6 +1472,47 @@ async function handleRetailRecipeItemRemove(payload: unknown): Promise<Response>
   return jsonResponse({ ok: true, rowsWritten: 1 });
 }
 
+/** UK cosmetic-product legal readiness (added 6 Sep 2026) — the fixed step keys are validated against the real list here, not left open, so a typo'd key can't silently create an untracked step. */
+const RETAIL_COMPLIANCE_STEP_KEYS = new Set([
+  'stability_testing',
+  'preservative_efficacy_testing',
+  'cpsr',
+  'product_information_file',
+  'responsible_person',
+  'scpn_notification',
+  'label_compliance',
+]);
+
+interface RetailComplianceStepPayload {
+  skuId: string;
+  stepKey: string;
+  completed: boolean;
+  notes?: string | null;
+}
+
+async function handleRetailComplianceStepSet(payload: unknown): Promise<Response> {
+  const p = payload as Partial<RetailComplianceStepPayload> | null;
+  if (!p || typeof p.skuId !== 'string' || !p.skuId) return jsonResponse({ ok: false, error: 'skuId is required' }, 400);
+  if (typeof p.stepKey !== 'string' || !RETAIL_COMPLIANCE_STEP_KEYS.has(p.stepKey)) {
+    return jsonResponse({ ok: false, error: 'stepKey is not a recognised compliance step' }, 400);
+  }
+  if (typeof p.completed !== 'boolean') return jsonResponse({ ok: false, error: 'completed must be a boolean' }, 400);
+
+  const { error } = await supabase.from('retail_compliance_steps').upsert(
+    {
+      sku_id: p.skuId,
+      step_key: p.stepKey,
+      completed_at: p.completed ? new Date().toISOString() : null,
+      notes: p.notes ?? null,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: 'sku_id,step_key' },
+  );
+  if (error) return jsonResponse({ ok: false, error: error.message }, 500);
+
+  return jsonResponse({ ok: true, rowsWritten: 1 });
+}
+
 // ---------------------------------------------------------------------
 // dispatch
 // ---------------------------------------------------------------------
@@ -1496,7 +1537,8 @@ interface RequestBody {
     | 'client_insight_dismissal'
     | 'retail_ingredients'
     | 'retail_skus'
-    | 'retail_recipe_items';
+    | 'retail_recipe_items'
+    | 'retail_compliance_steps';
   action: 'commit' | 'sync_cycle' | 'update' | 'remove' | 'resolve';
   rows?: unknown;
   payload?: unknown;
@@ -1578,6 +1620,11 @@ Deno.serve(async (req) => {
     if (body.action === 'commit') return handleRetailRecipeItemCommit(body.payload);
     if (body.action === 'remove') return handleRetailRecipeItemRemove(body.payload);
     return jsonResponse({ ok: false, error: 'Unknown action for retail_recipe_items' }, 400);
+  }
+
+  if (body.entity === 'retail_compliance_steps') {
+    if (body.action === 'commit') return handleRetailComplianceStepSet(body.payload);
+    return jsonResponse({ ok: false, error: 'Unknown action for retail_compliance_steps' }, 400);
   }
 
   if (body.action !== 'commit') {

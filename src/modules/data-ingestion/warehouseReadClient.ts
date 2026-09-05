@@ -530,6 +530,8 @@ export interface RetailSkuCost {
   weeklyCapacityUnits: number | null;
   monthlyCapacityUnits: number | null;
   capacityScaleNote: string | null;
+  /** UK cosmetic-product legal readiness (added 6 Sep 2026) — real completion state per step; the fixed step definitions live in the product-line UI as sourced regulatory fact. */
+  complianceSteps: { stepKey: string; completedAt: string | null; notes: string | null }[];
 }
 
 export interface RetailSkuCostsResult {
