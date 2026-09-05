@@ -13,6 +13,7 @@ import {
   commitRetailSku,
   removeRetailIngredient,
   removeRetailRecipeItem,
+  updateRetailSku,
   type WarehouseWriteResult,
 } from '@/modules/data-ingestion/warehouseWriteClient';
 
@@ -295,6 +296,69 @@ function RecipeBuilder({ sku, ingredients, onChanged }: { sku: RetailSkuCost; in
   );
 }
 
+/**
+ * Distribution readiness (added 5 Sep 2026) — is this SKU's margin
+ * healthy enough to actually supply a wholesale/retail partner at a real
+ * discount off online price, and if not, exactly what would need to
+ * change. Mirrors the Growth Roadmap's own "next step" pattern: a
+ * concrete, computed answer, not a vague "consider wholesale someday."
+ */
+function WholesaleReadiness({ sku, onChanged }: { sku: RetailSkuCost; onChanged: () => void }) {
+  const [discountPct, setDiscountPct] = useState(String(Math.round(sku.wholesaleDiscountPct * 100)));
+  const [isSaving, setIsSaving] = useState(false);
+
+  const isDirty = Number(discountPct) !== Math.round(sku.wholesaleDiscountPct * 100);
+  const discountNum = Number(discountPct);
+  const canSave = discountPct !== '' && Number.isFinite(discountNum) && discountNum >= 0 && discountNum < 100;
+
+  async function handleSave() {
+    if (!canSave) return;
+    setIsSaving(true);
+    try {
+      const res = await updateRetailSku({ id: sku.skuId, wholesaleDiscountPct: discountNum / 100 });
+      if (res.ok) onChanged();
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  const statusColor = sku.isWholesaleReady === null ? 'var(--color-ink-muted)' : sku.isWholesaleReady ? 'var(--color-good)' : 'var(--color-warning)';
+
+  return (
+    <div className="mt-3 border-t border-[var(--color-border)] pt-3">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-ink-muted)]">Distribution readiness</p>
+        {sku.isWholesaleReady !== null && (
+          <span className="rounded-full px-2 py-0.5 text-[10px] font-semibold" style={{ backgroundColor: `color-mix(in srgb, ${statusColor} 16%, transparent)`, color: statusColor }}>
+            {sku.isWholesaleReady ? 'Ready' : 'Not yet'}
+          </span>
+        )}
+      </div>
+      <div className="mt-2 flex items-end gap-2">
+        <div className="w-28">
+          <label className="mb-1 block text-xs font-medium text-[var(--color-ink-muted)]">Wholesale discount</label>
+          <div className="flex items-center gap-1">
+            <input type="number" min="0" max="99" step="1" value={discountPct} onChange={(event) => setDiscountPct(event.target.value)} className={INPUT_CLASSES} />
+            <span className="text-sm text-[var(--color-ink-muted)]">%</span>
+          </div>
+        </div>
+        {isDirty && (
+          <Button type="button" variant="secondary" className="!px-3 !py-2 text-xs" disabled={!canSave || isSaving} onClick={() => void handleSave()}>
+            {isSaving ? 'Saving…' : 'Save'}
+          </Button>
+        )}
+        {sku.wholesaleUnitPrice !== null && (
+          <p className="pb-2 text-xs text-[var(--color-ink-muted)]">
+            → partner pays {currency.format(sku.wholesaleUnitPrice)}/unit, you keep{' '}
+            {sku.wholesaleMargin !== null ? `${currency.format(sku.wholesaleMargin)} (${pct(sku.wholesaleMarginPct)})` : '—'}
+          </p>
+        )}
+      </div>
+      <p className="mt-2 text-sm text-[var(--color-ink)]">{sku.wholesaleNextStep}</p>
+    </div>
+  );
+}
+
 function SkuCard({ sku, ingredients, onChanged }: { sku: RetailSkuCost; ingredients: RetailIngredient[]; onChanged: () => void }) {
   return (
     <Card>
@@ -324,6 +388,7 @@ function SkuCard({ sku, ingredients, onChanged }: { sku: RetailSkuCost; ingredie
         </div>
       </div>
 
+      <WholesaleReadiness sku={sku} onChanged={onChanged} />
       <RecipeBuilder sku={sku} ingredients={ingredients} onChanged={onChanged} />
     </Card>
   );

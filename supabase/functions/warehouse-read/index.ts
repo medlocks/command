@@ -1579,6 +1579,21 @@ async function handleRecommendationsCurrent(): Promise<Response> {
 // postage.
 // ---------------------------------------------------------------------
 
+/**
+ * Healthy wholesale margin bar (added 5 Sep 2026) — a stated, industry-
+ * typical assumption (same "stated assumption, not hidden" pattern as
+ * TARGET_MARGIN_PCT elsewhere): a brand supplying wholesale/retail
+ * partners generally wants to keep at least this much margin on the
+ * wholesale unit price, since real wholesale-specific costs exist beyond
+ * what this calculator models (freight, returns, potential slotting
+ * fees) — not a claim that 50% is universally correct for every deal.
+ */
+const WHOLESALE_HEALTHY_MARGIN_PCT = 0.5;
+
+function currencyRound(value: number): string {
+  return `£${value.toFixed(2)}`;
+}
+
 async function handleRetailSkuCosts(): Promise<Response> {
   const [
     { data: skus, error: skusError },
@@ -1587,7 +1602,7 @@ async function handleRetailSkuCosts(): Promise<Response> {
   ] = await Promise.all([
     supabase
       .from('retail_skus')
-      .select('id, name, description, in_salon_price, online_price, shipping_packaging_cost, is_active')
+      .select('id, name, description, in_salon_price, online_price, shipping_packaging_cost, wholesale_discount_pct, is_active')
       .order('name'),
     supabase.from('retail_ingredients').select('id, name, purchase_price, purchase_quantity, unit, notes').order('name'),
     supabase.from('retail_recipe_items').select('id, sku_id, ingredient_id, quantity_used'),
@@ -1631,6 +1646,33 @@ async function handleRetailSkuCosts(): Promise<Response> {
     const onlineMargin = onlinePrice !== null ? Math.round((onlinePrice - onlineCostPerUnit) * 100) / 100 : null;
     const onlineMarginPct = onlinePrice !== null && onlinePrice > 0 ? Math.round(((onlinePrice - onlineCostPerUnit) / onlinePrice) * 1000) / 1000 : null;
 
+    // Wholesale/retail-distribution readiness — real numbers where a real
+    // online price exists, honestly "not measurable yet" otherwise. Uses
+    // online_price as the reference RRP a wholesale partner would resell
+    // at; deliberately excludes shipping/packaging (bulk/case shipping is
+    // a genuinely different real cost this calculator doesn't model yet,
+    // not the same as one-unit online postage).
+    const wholesaleDiscountPct = Number(sku.wholesale_discount_pct);
+    const wholesaleUnitPrice = onlinePrice !== null ? Math.round(onlinePrice * (1 - wholesaleDiscountPct) * 100) / 100 : null;
+    const wholesaleMargin = wholesaleUnitPrice !== null ? Math.round((wholesaleUnitPrice - productionCostPerUnit) * 100) / 100 : null;
+    const wholesaleMarginPct =
+      wholesaleUnitPrice !== null && wholesaleUnitPrice > 0
+        ? Math.round(((wholesaleUnitPrice - productionCostPerUnit) / wholesaleUnitPrice) * 1000) / 1000
+        : null;
+    const isWholesaleReady = wholesaleMarginPct !== null ? wholesaleMarginPct >= WHOLESALE_HEALTHY_MARGIN_PCT : null;
+
+    let wholesaleNextStep: string;
+    if (wholesaleUnitPrice === null) {
+      wholesaleNextStep = `Set a real online price first — wholesale readiness is worked out from it (${Math.round(wholesaleDiscountPct * 100)}% off, your current wholesale term).`;
+    } else if (isWholesaleReady) {
+      wholesaleNextStep = `Wholesale-ready at this ${Math.round(wholesaleDiscountPct * 100)}% discount — a partner buying at ${currencyRound(wholesaleUnitPrice)} still leaves a healthy ${Math.round((wholesaleMarginPct ?? 0) * 100)}% margin.`;
+    } else {
+      const requiredCostPerUnit = wholesaleUnitPrice * (1 - WHOLESALE_HEALTHY_MARGIN_PCT);
+      const costGap = Math.round((productionCostPerUnit - requiredCostPerUnit) * 100) / 100;
+      const requiredOnlinePrice = Math.round(((productionCostPerUnit / (1 - WHOLESALE_HEALTHY_MARGIN_PCT)) / (1 - wholesaleDiscountPct)) * 100) / 100;
+      wholesaleNextStep = `Not wholesale-ready yet at this ${Math.round(wholesaleDiscountPct * 100)}% discount — production cost would need to drop by roughly ${currencyRound(Math.max(costGap, 0))}, or the online price would need to rise to about ${currencyRound(requiredOnlinePrice)}, to clear a healthy ${Math.round(WHOLESALE_HEALTHY_MARGIN_PCT * 100)}% wholesale margin.`;
+    }
+
     return {
       skuId: sku.id as string,
       name: sku.name as string,
@@ -1646,6 +1688,12 @@ async function handleRetailSkuCosts(): Promise<Response> {
       inSalonMarginPct,
       onlineMargin,
       onlineMarginPct,
+      wholesaleDiscountPct,
+      wholesaleUnitPrice,
+      wholesaleMargin,
+      wholesaleMarginPct,
+      isWholesaleReady,
+      wholesaleNextStep,
     };
   });
 

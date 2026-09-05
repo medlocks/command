@@ -988,6 +988,12 @@ create table public.retail_skus (
   -- one unit sold online — deliberately NOT part of the recipe below,
   -- since an in-salon sale never incurs it.
   shipping_packaging_cost numeric(10,2),
+  -- Added 5 Sep 2026 for wholesale/retail-distribution readiness — the
+  -- % a wholesale/retail partner would expect off online_price (their
+  -- resale RRP). 0.5 (50% off) is a stated, industry-typical default
+  -- (same "stated assumption, not hidden" pattern as TARGET_MARGIN_PCT
+  -- elsewhere), editable per SKU as real wholesale terms become known.
+  wholesale_discount_pct numeric(5,4) not null default 0.5,
   is_active boolean not null default true,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()

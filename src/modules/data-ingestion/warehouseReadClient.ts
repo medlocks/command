@@ -507,6 +507,13 @@ export interface RetailSkuCost {
   inSalonMarginPct: number | null;
   onlineMargin: number | null;
   onlineMarginPct: number | null;
+  /** Distribution-readiness fields (added 5 Sep 2026) — real numbers derived from onlinePrice as the reference RRP, honest null when there's no online price to work from. */
+  wholesaleDiscountPct: number;
+  wholesaleUnitPrice: number | null;
+  wholesaleMargin: number | null;
+  wholesaleMarginPct: number | null;
+  isWholesaleReady: boolean | null;
+  wholesaleNextStep: string;
 }
 
 export interface RetailSkuCostsResult {

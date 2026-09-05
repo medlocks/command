@@ -1352,6 +1352,8 @@ interface RetailSkuPayload {
   inSalonPrice?: number | null;
   onlinePrice?: number | null;
   shippingPackagingCost?: number | null;
+  /** % off online_price a wholesale/retail partner would expect (added 5 Sep 2026) — 0.5 = 50% off. Defaults to 0.5 in the schema (a stated, editable assumption) if omitted. */
+  wholesaleDiscountPct?: number | null;
 }
 
 async function handleRetailSkuCommit(payload: unknown): Promise<Response> {
@@ -1359,18 +1361,22 @@ async function handleRetailSkuCommit(payload: unknown): Promise<Response> {
   if (!p || typeof p.name !== 'string' || !p.name.trim()) {
     return jsonResponse({ ok: false, error: 'name is required' }, 400);
   }
+  if (p.wholesaleDiscountPct !== undefined && p.wholesaleDiscountPct !== null) {
+    if (typeof p.wholesaleDiscountPct !== 'number' || !Number.isFinite(p.wholesaleDiscountPct) || p.wholesaleDiscountPct < 0 || p.wholesaleDiscountPct >= 1) {
+      return jsonResponse({ ok: false, error: 'wholesaleDiscountPct must be between 0 and 1 (e.g. 0.5 for 50% off)' }, 400);
+    }
+  }
 
-  const { data, error } = await supabase
-    .from('retail_skus')
-    .insert({
-      name: p.name.trim(),
-      description: p.description ?? null,
-      in_salon_price: p.inSalonPrice ?? null,
-      online_price: p.onlinePrice ?? null,
-      shipping_packaging_cost: p.shippingPackagingCost ?? null,
-    })
-    .select('id')
-    .single();
+  const insertRow: Record<string, unknown> = {
+    name: p.name.trim(),
+    description: p.description ?? null,
+    in_salon_price: p.inSalonPrice ?? null,
+    online_price: p.onlinePrice ?? null,
+    shipping_packaging_cost: p.shippingPackagingCost ?? null,
+  };
+  if (p.wholesaleDiscountPct !== undefined && p.wholesaleDiscountPct !== null) insertRow.wholesale_discount_pct = p.wholesaleDiscountPct;
+
+  const { data, error } = await supabase.from('retail_skus').insert(insertRow).select('id').single();
   if (error) return jsonResponse({ ok: false, error: error.message }, 500);
 
   return jsonResponse({ ok: true, rowsWritten: 1, id: data.id });
@@ -1396,6 +1402,12 @@ async function handleRetailSkuUpdate(payload: unknown): Promise<Response> {
   if (p.inSalonPrice !== undefined) fields.in_salon_price = p.inSalonPrice;
   if (p.onlinePrice !== undefined) fields.online_price = p.onlinePrice;
   if (p.shippingPackagingCost !== undefined) fields.shipping_packaging_cost = p.shippingPackagingCost;
+  if (p.wholesaleDiscountPct !== undefined) {
+    if (p.wholesaleDiscountPct !== null && (typeof p.wholesaleDiscountPct !== 'number' || !Number.isFinite(p.wholesaleDiscountPct) || p.wholesaleDiscountPct < 0 || p.wholesaleDiscountPct >= 1)) {
+      return jsonResponse({ ok: false, error: 'wholesaleDiscountPct must be between 0 and 1 (e.g. 0.5 for 50% off)' }, 400);
+    }
+    fields.wholesale_discount_pct = p.wholesaleDiscountPct;
+  }
   if (p.isActive !== undefined) fields.is_active = p.isActive;
   if (Object.keys(fields).length === 0) return jsonResponse({ ok: false, error: 'Nothing to update' }, 400);
   fields.updated_at = new Date().toISOString();
