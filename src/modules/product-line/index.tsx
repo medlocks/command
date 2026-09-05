@@ -322,15 +322,36 @@ function WholesaleReadiness({ sku, onChanged }: { sku: RetailSkuCost; onChanged:
     }
   }
 
-  const statusColor = sku.isWholesaleReady === null ? 'var(--color-ink-muted)' : sku.isWholesaleReady ? 'var(--color-good)' : 'var(--color-warning)';
+  // Two independent gates, shown honestly rather than collapsed into one
+  // pill: a healthy margin (isMarginReady) is necessary but not
+  // sufficient — a retailer also wants proof of real DTC demand
+  // (hasProvenDtcTraction), which this app can't measure yet.
+  const statusLabel =
+    sku.isMarginReady === null
+      ? null
+      : sku.isMarginReady === false
+        ? 'Not yet — margin'
+        : sku.hasProvenDtcTraction === null
+          ? 'Margin ready — needs DTC proof'
+          : sku.hasProvenDtcTraction
+            ? 'Ready'
+            : 'Not yet — traction';
+  const statusColor =
+    sku.isMarginReady === null
+      ? 'var(--color-ink-muted)'
+      : sku.isWholesaleReady === true
+        ? 'var(--color-good)'
+        : sku.isMarginReady && sku.hasProvenDtcTraction === null
+          ? 'var(--color-ink-muted)'
+          : 'var(--color-warning)';
 
   return (
     <div className="mt-3 border-t border-[var(--color-border)] pt-3">
       <div className="flex items-center justify-between gap-2">
         <p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-ink-muted)]">Distribution readiness</p>
-        {sku.isWholesaleReady !== null && (
+        {statusLabel !== null && (
           <span className="rounded-full px-2 py-0.5 text-[10px] font-semibold" style={{ backgroundColor: `color-mix(in srgb, ${statusColor} 16%, transparent)`, color: statusColor }}>
-            {sku.isWholesaleReady ? 'Ready' : 'Not yet'}
+            {statusLabel}
           </span>
         )}
       </div>

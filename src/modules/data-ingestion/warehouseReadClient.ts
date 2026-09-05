@@ -519,6 +519,11 @@ export interface RetailSkuCost {
   wholesaleUnitPrice: number | null;
   wholesaleMargin: number | null;
   wholesaleMarginPct: number | null;
+  /** Margin health alone (added 5 Sep 2026) — necessary but not sufficient for isWholesaleReady. */
+  isMarginReady: boolean | null;
+  /** Real proven DTC sales traction (added 5 Sep 2026) — the other genuine gate before approaching a retail stockist. Always null today: no real sales-velocity data source (Shopify sync) exists yet, so this is honestly unmeasured rather than assumed. */
+  hasProvenDtcTraction: boolean | null;
+  /** True only when both isMarginReady and hasProvenDtcTraction are true. */
   isWholesaleReady: boolean | null;
   wholesaleNextStep: string;
   /** Real production ceiling at current effort (added 5 Sep 2026) — null until entered. No "% of capacity used" field: that needs real order-volume data (Shopify sync) that doesn't exist yet. */

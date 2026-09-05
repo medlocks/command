@@ -1675,18 +1675,34 @@ async function handleRetailSkuCosts(): Promise<Response> {
       wholesaleUnitPrice !== null && wholesaleUnitPrice > 0
         ? Math.round(((wholesaleUnitPrice - productionCostPerUnit) / wholesaleUnitPrice) * 1000) / 1000
         : null;
-    const isWholesaleReady = wholesaleMarginPct !== null ? wholesaleMarginPct >= WHOLESALE_HEALTHY_MARGIN_PCT : null;
+    const isMarginReady = wholesaleMarginPct !== null ? wholesaleMarginPct >= WHOLESALE_HEALTHY_MARGIN_PCT : null;
+
+    // Real DTC sales traction is the other genuine gate before approaching
+    // a retail stockist (added 5 Sep 2026, per direct correction: a
+    // healthy margin alone doesn't prove a retailer *should* stock this —
+    // you need your own proven demand first, same logic as any retail
+    // buyer would apply). No real sales-velocity data source exists yet
+    // (the online store isn't connected — see the Shopify-sync gap
+    // documented elsewhere), so this stays honestly unmeasured rather
+    // than silently assumed satisfied just because margin looks good.
+    const hasProvenDtcTraction: boolean | null = null;
+
+    const isWholesaleReady: boolean | null = isMarginReady === true ? hasProvenDtcTraction : isMarginReady;
 
     let wholesaleNextStep: string;
     if (wholesaleUnitPrice === null) {
       wholesaleNextStep = `Set a real online price first — wholesale readiness is worked out from it (${Math.round(wholesaleDiscountPct * 100)}% off, your current wholesale term).`;
-    } else if (isWholesaleReady) {
-      wholesaleNextStep = `Wholesale-ready at this ${Math.round(wholesaleDiscountPct * 100)}% discount — a partner buying at ${currencyRound(wholesaleUnitPrice)} still leaves a healthy ${Math.round((wholesaleMarginPct ?? 0) * 100)}% margin.`;
-    } else {
+    } else if (!isMarginReady) {
       const requiredCostPerUnit = wholesaleUnitPrice * (1 - WHOLESALE_HEALTHY_MARGIN_PCT);
       const costGap = Math.round((productionCostPerUnit - requiredCostPerUnit) * 100) / 100;
       const requiredOnlinePrice = Math.round(((productionCostPerUnit / (1 - WHOLESALE_HEALTHY_MARGIN_PCT)) / (1 - wholesaleDiscountPct)) * 100) / 100;
-      wholesaleNextStep = `Not wholesale-ready yet at this ${Math.round(wholesaleDiscountPct * 100)}% discount — production cost would need to drop by roughly ${currencyRound(Math.max(costGap, 0))}, or the online price would need to rise to about ${currencyRound(requiredOnlinePrice)}, to clear a healthy ${Math.round(WHOLESALE_HEALTHY_MARGIN_PCT * 100)}% wholesale margin.`;
+      wholesaleNextStep = `Margin isn't wholesale-healthy yet at this ${Math.round(wholesaleDiscountPct * 100)}% discount — production cost would need to drop by roughly ${currencyRound(Math.max(costGap, 0))}, or the online price would need to rise to about ${currencyRound(requiredOnlinePrice)}, to clear a healthy ${Math.round(WHOLESALE_HEALTHY_MARGIN_PCT * 100)}% wholesale margin.`;
+    } else if (hasProvenDtcTraction === null) {
+      wholesaleNextStep = `Margin's healthy at this ${Math.round(wholesaleDiscountPct * 100)}% discount — a partner buying at ${currencyRound(wholesaleUnitPrice)} would still leave ${Math.round((wholesaleMarginPct ?? 0) * 100)}%. But margin alone isn't enough to approach a retail stockist: build a real sales history through your own DTC channel first, so you're walking in with proof of demand, not just a spreadsheet. (This app can't measure that yet — it needs your online sales data connected.)`;
+    } else if (hasProvenDtcTraction) {
+      wholesaleNextStep = `Wholesale-ready — margin is healthy (${Math.round((wholesaleMarginPct ?? 0) * 100)}%) and your own DTC sales show real proven demand.`;
+    } else {
+      wholesaleNextStep = `Margin's healthy, but your DTC sales history isn't there yet to prove demand to a stockist — keep selling direct first.`;
     }
 
     // Production capacity (added 5 Sep 2026) — a real, owner-supplied
@@ -1717,6 +1733,8 @@ async function handleRetailSkuCosts(): Promise<Response> {
       wholesaleUnitPrice,
       wholesaleMargin,
       wholesaleMarginPct,
+      isMarginReady,
+      hasProvenDtcTraction,
       isWholesaleReady,
       wholesaleNextStep,
       weeklyCapacityUnits,
