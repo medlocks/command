@@ -61,6 +61,229 @@ const SIGNIFICANT_CAC_CHANGE_THRESHOLD = 0.15;
 /** Own copy of `warehouse-read`'s `REAL_WORK_STATUSES` (added 4 Sep 2026) — Fresha's status field doesn't reliably get flipped to "Completed" (cash payments, pre-paid bookings, stylists who don't bother), so "New"/"Confirmed" count as real work too; "Cancelled"/"No Show" don't. */
 const REAL_WORK_STATUSES = ['Completed', 'New', 'Confirmed'];
 
+// ---------------------------------------------------------------------
+// Client retention (added 5 Sep 2026) — the app's single biggest £-impact
+// signal (colour top-ups due, lapse risk) previously never reached this
+// daily push at all, only the in-app to-do list someone has to remember
+// to open. Own copy of `warehouse-read`'s `client_insight_lists` +
+// `average_prices` algorithms, same "Edge Functions don't share code"
+// pattern as everything else here — kept in sync by hand.
+// ---------------------------------------------------------------------
+
+const TOP_UP_DUE_WINDOW_DAYS = 7;
+const TOP_UP_MAX_OVERDUE_DAYS = 14;
+const LOW_CONFIDENCE_VISIT_THRESHOLD = 3;
+const OVERDUE_MULTIPLIER = 1.5;
+const COLOUR_CATEGORY = 'Colour Services';
+const AVERAGE_PRICE_WINDOW_DAYS = 90;
+/** Mirrors `todoList.ts`'s own stated assumption exactly — the fraction of a lapse-risk client a win-back nudge is assumed to actually recover, not a measured conversion rate. */
+const LAPSE_WIN_BACK_RATE = 0.35;
+/** Own copy of `warehouse-read`'s internal-calendar-block list — these show up in Fresha's export as "clients" but are staff calendar entries, not real people to win back. */
+const INTERNAL_BLOCK_CLIENT_NAMES = new Set(['Lunch 🤍', 'Holiday', 'Team Meeting', 'Extension Training 💓', 'Elise Lashes', 'Dolly Doo']);
+/** A daily email should show enough to act on, not the whole in-app list — cap each section and point to the app for the rest. */
+const DIGEST_RETENTION_MAX_PER_SECTION = 5;
+
+interface VisitPrediction {
+  averageIntervalDays: number;
+  predictedNextDueDate: string;
+  lastVisitDate: string;
+  visitCount: number;
+  isLowConfidence: boolean;
+}
+
+function predictNextVisit(visitDates: readonly string[]): VisitPrediction {
+  const sorted = [...visitDates].sort();
+  const lastVisitDate = sorted[sorted.length - 1]!;
+  const visitCount = sorted.length;
+  if (visitCount < 2) {
+    return { averageIntervalDays: 0, predictedNextDueDate: lastVisitDate, lastVisitDate, visitCount, isLowConfidence: true };
+  }
+  const gaps: number[] = [];
+  for (let i = 1; i < sorted.length; i++) gaps.push(daysBetween(sorted[i - 1]!, sorted[i]!));
+  const averageIntervalDays = Math.round(gaps.reduce((sum, g) => sum + g, 0) / gaps.length);
+  return {
+    averageIntervalDays,
+    predictedNextDueDate: addDays(lastVisitDate, averageIntervalDays),
+    lastVisitDate,
+    visitCount,
+    isLowConfidence: visitCount < LOW_CONFIDENCE_VISIT_THRESHOLD,
+  };
+}
+
+function scoreLapseRisk(lastVisitDate: string, averageIntervalDays: number, today: string) {
+  const daysSinceLastVisit = daysBetween(lastVisitDate, today);
+  const overdueThreshold = averageIntervalDays * OVERDUE_MULTIPLIER;
+  const score = overdueThreshold > 0 ? Math.min(daysSinceLastVisit / overdueThreshold, 1) : 0;
+  return { score, isAtRisk: overdueThreshold > 0 && daysSinceLastVisit > overdueThreshold, daysSinceLastVisit };
+}
+
+function buildWhatsAppHref(phone: string, message: string): string {
+  const digits = phone.replace(/[^\d]/g, '');
+  return `https://wa.me/${digits}?text=${encodeURIComponent(message)}`;
+}
+
+function buildMailtoHref(email: string, message: string): string {
+  const subject = encodeURIComponent('A little overdue for your next visit!');
+  return `mailto:${email}?subject=${subject}&body=${encodeURIComponent(message)}`;
+}
+
+/** Own copy of `DraftWinBackButton.tsx`'s message templates, so the email link opens WhatsApp/email with the same draft the app itself would offer. */
+function draftColourTopUpMessage(clientName: string, daysUntilDue: number): string {
+  const firstName = clientName.split(' ')[0] ?? clientName;
+  const dueClause = daysUntilDue < 0 ? "you're overdue for your colour top-up" : "you're due for a colour top-up soon";
+  return `Hi ${firstName}, it's Medlocks Hair — just a friendly nudge that ${dueClause}. Book in whenever suits you, we'd love to see you! x`;
+}
+
+function draftLapseRiskMessage(clientName: string, daysSinceLastVisit: number): string {
+  const firstName = clientName.split(' ')[0] ?? clientName;
+  return `Hi ${firstName}, it's Medlocks Hair — we've missed you! It's been ${daysSinceLastVisit} days since your last visit, so thought I'd check in. Fancy booking something in? x`;
+}
+
+interface DigestRetentionItem {
+  clientName: string;
+  detail: string;
+  actionHref: string | null;
+  actionLabel: string | null;
+  hasConsent: boolean;
+}
+
+interface RetentionSignal {
+  colourTopUps: DigestRetentionItem[];
+  colourTopUpsTotalCount: number;
+  lapseRisk: DigestRetentionItem[];
+  lapseRiskTotalCount: number;
+  estimatedImpact: number;
+}
+
+/** Builds the one-tap action for an email row — gated on real marketing consent, exactly like the in-app `DraftWinBackButton`, so this email can never nudge someone who hasn't opted in. */
+function buildAction(mobile: string | null, email: string | null, marketingConsent: boolean, message: string): { href: string | null; label: string | null } {
+  if (!marketingConsent) return { href: null, label: null };
+  if (mobile) return { href: buildWhatsAppHref(mobile, message), label: 'Message on WhatsApp' };
+  if (email) return { href: buildMailtoHref(email, message), label: 'Email' };
+  return { href: null, label: null };
+}
+
+async function gatherRetentionSignal(): Promise<RetentionSignal> {
+  const today = new Date().toISOString().slice(0, 10);
+  const priceCutoff = addDays(today, -AVERAGE_PRICE_WINDOW_DAYS);
+
+  const [
+    { data: appointments, error: apptError },
+    { data: priceRows, error: priceError },
+    { data: clients, error: clientError },
+    { data: dismissals, error: dismissalError },
+  ] = await Promise.all([
+    supabase.from('fresha_appointments').select('client_name, category, scheduled_date').in('status', REAL_WORK_STATUSES).lte('scheduled_date', today),
+    supabase
+      .from('fresha_appointments')
+      .select('client_name, category, net_sales')
+      .in('status', REAL_WORK_STATUSES)
+      .gte('scheduled_date', priceCutoff)
+      .lte('scheduled_date', today),
+    supabase.from('clients').select('id, full_name, profiling_opt_out, email, mobile, marketing_consent').is('deleted_at', null),
+    supabase.from('client_insight_dismissals').select('client_id, insight_type, category, dismissed_at'),
+  ]);
+  if (apptError) throw new Error(apptError.message);
+  if (priceError) throw new Error(priceError.message);
+  if (clientError) throw new Error(clientError.message);
+  if (dismissalError) throw new Error(dismissalError.message);
+
+  const priceRowsClean = (priceRows ?? []).filter((r) => !r.client_name || !INTERNAL_BLOCK_CLIENT_NAMES.has(r.client_name));
+  const colourPriceRows = priceRowsClean.filter((r) => r.category === COLOUR_CATEGORY);
+  const avg = (list: { net_sales: number }[]) => (list.length > 0 ? list.reduce((sum, r) => sum + Number(r.net_sales), 0) / list.length : 0);
+  const averageColourPrice = avg(colourPriceRows);
+  const averageServicePrice = avg(priceRowsClean);
+
+  const contactById = new Map(
+    (clients ?? []).map((c) => [c.id, { email: c.email as string | null, mobile: c.mobile as string | null, marketingConsent: c.marketing_consent as boolean }]),
+  );
+  const clientsByName = new Map<string, { id: string; profilingOptOut: boolean }>();
+  for (const c of clients ?? []) {
+    if (c.full_name) clientsByName.set(c.full_name, { id: c.id, profilingOptOut: c.profiling_opt_out });
+  }
+  const dismissalsByKey = new Map<string, string>();
+  for (const d of dismissals ?? []) {
+    dismissalsByKey.set(`${d.client_id}::${d.insight_type}::${d.category}`, d.dismissed_at);
+  }
+
+  const groups = new Map<string, { clientId: string; clientName: string; category: string; dates: string[] }>();
+  for (const a of appointments ?? []) {
+    if (!a.scheduled_date) continue;
+    const client = clientsByName.get(a.client_name);
+    if (!client || client.profilingOptOut) continue;
+    const category = a.category ?? 'Uncategorized';
+    const key = `${client.id}::${category}`;
+    const group = groups.get(key) ?? { clientId: client.id, clientName: a.client_name, category, dates: [] };
+    group.dates.push(a.scheduled_date);
+    groups.set(key, group);
+  }
+
+  function activeDismissal(clientId: string, insightType: string, category: string, lastVisitDate: string): boolean {
+    const dismissedAt = dismissalsByKey.get(`${clientId}::${insightType}::${category}`);
+    return dismissedAt !== undefined && lastVisitDate <= dismissedAt.slice(0, 10);
+  }
+
+  const colourTopUps: (DigestRetentionItem & { daysUntilDue: number })[] = [];
+  const lapseRiskAll: (DigestRetentionItem & { score: number; isLowConfidence: boolean })[] = [];
+
+  for (const group of groups.values()) {
+    const prediction = predictNextVisit(group.dates);
+    const contact = contactById.get(group.clientId);
+
+    if (group.category === COLOUR_CATEGORY) {
+      const daysUntilDue = daysBetween(today, prediction.predictedNextDueDate);
+      if (daysUntilDue >= -TOP_UP_MAX_OVERDUE_DAYS && daysUntilDue <= TOP_UP_DUE_WINDOW_DAYS) {
+        if (!activeDismissal(group.clientId, 'colour-top-up', group.category, prediction.lastVisitDate)) {
+          const message = draftColourTopUpMessage(group.clientName, daysUntilDue);
+          const action = buildAction(contact?.mobile ?? null, contact?.email ?? null, contact?.marketingConsent ?? false, message);
+          colourTopUps.push({
+            clientName: group.clientName,
+            detail: daysUntilDue < 0 ? `overdue by ${Math.abs(daysUntilDue)} day${Math.abs(daysUntilDue) === 1 ? '' : 's'}` : `due in ${daysUntilDue} day${daysUntilDue === 1 ? '' : 's'}`,
+            actionHref: action.href,
+            actionLabel: action.label,
+            hasConsent: contact?.marketingConsent ?? false,
+            daysUntilDue,
+          });
+        }
+      }
+    }
+
+    if (prediction.visitCount >= 2) {
+      const risk = scoreLapseRisk(prediction.lastVisitDate, prediction.averageIntervalDays, today);
+      if (risk.isAtRisk && !activeDismissal(group.clientId, 'lapse-risk', group.category, prediction.lastVisitDate)) {
+        const message = draftLapseRiskMessage(group.clientName, risk.daysSinceLastVisit);
+        const action = buildAction(contact?.mobile ?? null, contact?.email ?? null, contact?.marketingConsent ?? false, message);
+        lapseRiskAll.push({
+          clientName: group.clientName,
+          detail: `${risk.daysSinceLastVisit} days since last visit`,
+          actionHref: action.href,
+          actionLabel: action.label,
+          hasConsent: contact?.marketingConsent ?? false,
+          score: risk.score,
+          isLowConfidence: prediction.isLowConfidence,
+        });
+      }
+    }
+  }
+
+  colourTopUps.sort((a, b) => a.daysUntilDue - b.daysUntilDue);
+  lapseRiskAll.sort((a, b) => b.score - a.score);
+
+  // Same £-impact formulas as the in-app to-do list (`todoList.ts`) — kept
+  // in sync by hand, not shared code. Lapse risk only counts
+  // high-confidence flags (3+ real visits), same reasoning as there.
+  const estimatedImpact =
+    colourTopUps.length * averageColourPrice + lapseRiskAll.filter((f) => !f.isLowConfidence).length * averageServicePrice * LAPSE_WIN_BACK_RATE;
+
+  return {
+    colourTopUps: colourTopUps.slice(0, DIGEST_RETENTION_MAX_PER_SECTION),
+    colourTopUpsTotalCount: colourTopUps.length,
+    lapseRisk: lapseRiskAll.slice(0, DIGEST_RETENTION_MAX_PER_SECTION),
+    lapseRiskTotalCount: lapseRiskAll.length,
+    estimatedImpact: Math.round(estimatedImpact),
+  };
+}
+
 interface DigestStockFlag {
   productName: string;
   urgency: string;
@@ -192,17 +415,47 @@ function escapeHtml(text: string): string {
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-function buildDigestEmail(flags: DigestStockFlag[], reorderRecs: DigestReorderRec[], cac: CacSignal | null): { subject: string; html: string } {
-  const itemCount = flags.length + reorderRecs.length + (cac ? 1 : 0);
+function buildDigestEmail(
+  flags: DigestStockFlag[],
+  reorderRecs: DigestReorderRec[],
+  cac: CacSignal | null,
+  retention: RetentionSignal,
+): { subject: string; html: string } {
+  const retentionCount = retention.colourTopUpsTotalCount + retention.lapseRiskTotalCount;
+  const itemCount = flags.length + reorderRecs.length + (cac ? 1 : 0) + retentionCount;
 
   if (itemCount === 0) {
     return {
       subject: 'Medlocks Command Centre — all clear today',
-      html: `<p>Nothing needs your attention today — no critical stock flags, no urgent reorders, no unusual CAC movement.</p><p style="color:#8a8a8a;font-size:12px;">This runs every morning whether or not there's anything to report, so a missing email means the digest itself has broken, not that everything's fine.</p>`,
+      html: `<p>Nothing needs your attention today — no critical stock flags, no urgent reorders, no unusual CAC movement, no clients due a nudge.</p><p style="color:#8a8a8a;font-size:12px;">This runs every morning whether or not there's anything to report, so a missing email means the digest itself has broken, not that everything's fine.</p>`,
     };
   }
 
   const sections: string[] = [];
+
+  if (retentionCount > 0) {
+    const renderRow = (item: DigestRetentionItem) => {
+      const action = item.actionHref
+        ? ` — <a href="${item.actionHref}" style="color:#6d28d9;">${item.actionLabel}</a>`
+        : item.hasConsent
+          ? ''
+          : ' (no marketing consent on file)';
+      return `<li><strong>${escapeHtml(item.clientName)}</strong> — ${item.detail}${action}</li>`;
+    };
+
+    let retentionHtml = `<h2 style="font-size:15px;margin:20px 0 6px;">Clients — worth a nudge today</h2><p style="margin:0 0 8px;color:#4b4160;">Estimated £${retention.estimatedImpact.toLocaleString('en-GB')} at stake across everyone currently flagged — tap a name below to send a real message now.</p>`;
+    if (retention.colourTopUps.length > 0) {
+      const rows = retention.colourTopUps.map(renderRow).join('');
+      const more = retention.colourTopUpsTotalCount > retention.colourTopUps.length ? `<p style="margin:4px 0 0;color:#8a8a8a;font-size:12px;">+${retention.colourTopUpsTotalCount - retention.colourTopUps.length} more colour top-up${retention.colourTopUpsTotalCount - retention.colourTopUps.length === 1 ? '' : 's'} in the app.</p>` : '';
+      retentionHtml += `<p style="margin:10px 0 4px;font-weight:600;">Colour top-ups due</p><ul style="margin:0;padding-left:18px;">${rows}</ul>${more}`;
+    }
+    if (retention.lapseRisk.length > 0) {
+      const rows = retention.lapseRisk.map(renderRow).join('');
+      const more = retention.lapseRiskTotalCount > retention.lapseRisk.length ? `<p style="margin:4px 0 0;color:#8a8a8a;font-size:12px;">+${retention.lapseRiskTotalCount - retention.lapseRisk.length} more trending toward lapsing in the app.</p>` : '';
+      retentionHtml += `<p style="margin:10px 0 4px;font-weight:600;">Trending toward lapsing</p><ul style="margin:0;padding-left:18px;">${rows}</ul>${more}`;
+    }
+    sections.push(retentionHtml);
+  }
 
   if (flags.length > 0) {
     const rows = flags
@@ -257,10 +510,11 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const [{ flags, reorderRecs }, cac] = await Promise.all([gatherStockSignals(), gatherCacSignal()]);
-    const { subject, html } = buildDigestEmail(flags, reorderRecs, cac);
+    const [{ flags, reorderRecs }, cac, retention] = await Promise.all([gatherStockSignals(), gatherCacSignal(), gatherRetentionSignal()]);
+    const { subject, html } = buildDigestEmail(flags, reorderRecs, cac, retention);
     await sendDigestEmail(subject, html);
-    return jsonResponse({ ok: true, itemCount: flags.length + reorderRecs.length + (cac ? 1 : 0) });
+    const itemCount = flags.length + reorderRecs.length + (cac ? 1 : 0) + retention.colourTopUpsTotalCount + retention.lapseRiskTotalCount;
+    return jsonResponse({ ok: true, itemCount });
   } catch (err) {
     return jsonResponse({ ok: false, error: err instanceof Error ? err.message : String(err) }, 500);
   }
