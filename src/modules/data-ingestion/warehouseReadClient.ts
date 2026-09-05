@@ -462,3 +462,61 @@ export interface IndustryBenchmarksListResult {
 export function fetchIndustryBenchmarks(): Promise<IndustryBenchmarksListResult> {
   return callFunction({ query: 'industry_benchmarks_list' });
 }
+
+// ---------------------------------------------------------------------
+// MedLocks retail product line (added 5 Sep 2026) — a separate business
+// domain from salon services (manufacturing + retail). See
+// `retail_sku_costs`'s own doc comment in warehouse-read for the full
+// reasoning: cost per unit is always a live computation from real
+// ingredient purchase prices and recipe quantities, never a stored number.
+// ---------------------------------------------------------------------
+
+export interface RetailIngredient {
+  id: string;
+  name: string;
+  purchasePrice: number;
+  purchaseQuantity: number;
+  unit: string;
+  notes: string | null;
+  /** purchasePrice / purchaseQuantity — computed server-side, never entered directly. */
+  costPerBaseUnit: number;
+}
+
+export interface RetailRecipeLine {
+  recipeItemId: string;
+  ingredientId: string;
+  ingredientName: string;
+  unit: string;
+  quantityUsed: number;
+  costPerBaseUnit: number;
+  lineCost: number;
+}
+
+export interface RetailSkuCost {
+  skuId: string;
+  name: string;
+  description: string | null;
+  isActive: boolean;
+  recipe: RetailRecipeLine[];
+  productionCostPerUnit: number;
+  shippingPackagingCost: number | null;
+  onlineCostPerUnit: number;
+  inSalonPrice: number | null;
+  onlinePrice: number | null;
+  inSalonMargin: number | null;
+  inSalonMarginPct: number | null;
+  onlineMargin: number | null;
+  onlineMarginPct: number | null;
+}
+
+export interface RetailSkuCostsResult {
+  ok: boolean;
+  skus?: RetailSkuCost[];
+  ingredients?: RetailIngredient[];
+  error?: string;
+}
+
+/** Every real SKU's live-computed cost-per-unit and margin, plus the full ingredient catalog (for building a recipe against). Honestly empty until real ingredients/SKUs/recipes are entered — no external data source exists for any of this. */
+export function fetchRetailSkuCosts(): Promise<RetailSkuCostsResult> {
+  return callFunction({ query: 'retail_sku_costs' });
+}

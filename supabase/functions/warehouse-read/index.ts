@@ -1568,6 +1568,105 @@ async function handleRecommendationsCurrent(): Promise<Response> {
   return jsonResponse({ ok: true, items });
 }
 
+// ---------------------------------------------------------------------
+// retail_sku_costs (Requirements: MedLocks Hair Care Product Growth,
+// Section 4/8, added 5 Sep 2026) — MedLocks' own manufactured retail
+// product line, a separate business domain from salon services. Cost per
+// unit is never stored, always computed fresh here from real ingredient
+// purchase prices and recipe quantities — change one ingredient's price
+// and every SKU using it recomputes automatically. Shipping/packaging is
+// added only for the online channel, since an in-salon sale never incurs
+// postage.
+// ---------------------------------------------------------------------
+
+async function handleRetailSkuCosts(): Promise<Response> {
+  const [
+    { data: skus, error: skusError },
+    { data: ingredients, error: ingredientsError },
+    { data: recipeItems, error: recipeError },
+  ] = await Promise.all([
+    supabase
+      .from('retail_skus')
+      .select('id, name, description, in_salon_price, online_price, shipping_packaging_cost, is_active')
+      .order('name'),
+    supabase.from('retail_ingredients').select('id, name, purchase_price, purchase_quantity, unit, notes').order('name'),
+    supabase.from('retail_recipe_items').select('id, sku_id, ingredient_id, quantity_used'),
+  ]);
+  if (skusError) return jsonResponse({ ok: false, error: skusError.message }, 500);
+  if (ingredientsError) return jsonResponse({ ok: false, error: ingredientsError.message }, 500);
+  if (recipeError) return jsonResponse({ ok: false, error: recipeError.message }, 500);
+
+  const ingredientById = new Map((ingredients ?? []).map((i) => [i.id, i]));
+
+  const skuResults = (skus ?? []).map((sku) => {
+    const items = (recipeItems ?? []).filter((r) => r.sku_id === sku.id);
+    const recipe = items
+      .map((item) => {
+        const ing = ingredientById.get(item.ingredient_id);
+        if (!ing) return null;
+        const purchaseQty = Number(ing.purchase_quantity);
+        const costPerBaseUnit = purchaseQty > 0 ? Number(ing.purchase_price) / purchaseQty : 0;
+        const lineCost = costPerBaseUnit * Number(item.quantity_used);
+        return {
+          recipeItemId: item.id as string,
+          ingredientId: ing.id as string,
+          ingredientName: ing.name as string,
+          unit: ing.unit as string,
+          quantityUsed: Number(item.quantity_used),
+          costPerBaseUnit: Math.round(costPerBaseUnit * 10000) / 10000,
+          lineCost: Math.round(lineCost * 100) / 100,
+        };
+      })
+      .filter((x): x is NonNullable<typeof x> => x !== null);
+
+    const productionCostPerUnit = Math.round(recipe.reduce((sum, x) => sum + x.lineCost, 0) * 100) / 100;
+    const shippingPackagingCost = sku.shipping_packaging_cost !== null ? Number(sku.shipping_packaging_cost) : 0;
+    const onlineCostPerUnit = Math.round((productionCostPerUnit + shippingPackagingCost) * 100) / 100;
+
+    const inSalonPrice = sku.in_salon_price !== null ? Number(sku.in_salon_price) : null;
+    const onlinePrice = sku.online_price !== null ? Number(sku.online_price) : null;
+
+    const inSalonMargin = inSalonPrice !== null ? Math.round((inSalonPrice - productionCostPerUnit) * 100) / 100 : null;
+    const inSalonMarginPct = inSalonPrice !== null && inSalonPrice > 0 ? Math.round(((inSalonPrice - productionCostPerUnit) / inSalonPrice) * 1000) / 1000 : null;
+    const onlineMargin = onlinePrice !== null ? Math.round((onlinePrice - onlineCostPerUnit) * 100) / 100 : null;
+    const onlineMarginPct = onlinePrice !== null && onlinePrice > 0 ? Math.round(((onlinePrice - onlineCostPerUnit) / onlinePrice) * 1000) / 1000 : null;
+
+    return {
+      skuId: sku.id as string,
+      name: sku.name as string,
+      description: sku.description as string | null,
+      isActive: sku.is_active as boolean,
+      recipe,
+      productionCostPerUnit,
+      shippingPackagingCost: sku.shipping_packaging_cost !== null ? Number(sku.shipping_packaging_cost) : null,
+      onlineCostPerUnit,
+      inSalonPrice,
+      onlinePrice,
+      inSalonMargin,
+      inSalonMarginPct,
+      onlineMargin,
+      onlineMarginPct,
+    };
+  });
+
+  return jsonResponse({
+    ok: true,
+    skus: skuResults,
+    ingredients: (ingredients ?? []).map((i) => {
+      const purchaseQty = Number(i.purchase_quantity);
+      return {
+        id: i.id,
+        name: i.name,
+        purchasePrice: Number(i.purchase_price),
+        purchaseQuantity: purchaseQty,
+        unit: i.unit,
+        notes: i.notes,
+        costPerBaseUnit: purchaseQty > 0 ? Math.round((Number(i.purchase_price) / purchaseQty) * 10000) / 10000 : 0,
+      };
+    }),
+  });
+}
+
 interface RequestBody {
   query:
     | 'blended_cac_30d'
@@ -1588,7 +1687,8 @@ interface RequestBody {
     | 'stock_state'
     | 'service_profitability'
     | 'service_names_list'
-    | 'industry_benchmarks_list';
+    | 'industry_benchmarks_list'
+    | 'retail_sku_costs';
   retailTypeNames?: string[];
   clientName?: string;
   periods?: unknown;
@@ -1655,6 +1755,8 @@ Deno.serve(async (req) => {
       return handleServiceNamesList();
     case 'industry_benchmarks_list':
       return handleIndustryBenchmarksList();
+    case 'retail_sku_costs':
+      return handleRetailSkuCosts();
     default:
       return jsonResponse({ ok: false, error: 'Unknown query' }, 400);
   }

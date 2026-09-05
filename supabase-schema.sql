@@ -945,5 +945,77 @@ select cron.schedule(
 );
 
 -- =====================================================================
+-- MedLocks retail product line (added 5 Sep 2026)
+-- =====================================================================
+-- A genuinely separate business function from the salon-services domain
+-- above: MedLocks' own manufactured hair-care product line (currently one
+-- SKU — a hand-mixed glass-blonde hair serum — with real ambition to
+-- scale to multiple SKUs and real distribution). Deliberately its own
+-- tables, not bolted onto `public.products` above — that table is salon
+-- *operational stock* (colour, chemicals, retail items the salon uses/
+-- sells in-salon), a different thing from a manufactured SKU with a real
+-- recipe, batch cost, and compliance status. Sharing a name ("product")
+-- is not sharing a domain.
+--
+-- Cost-per-unit is fully dynamic, never a number typed in directly: an
+-- ingredient's cost is derived from what it was actually bought for
+-- (purchase_price / purchase_quantity), and a SKU's cost is the real sum
+-- of its recipe — change one ingredient's price and every SKU using it
+-- recomputes, rather than needing every affected SKU's price hand-edited.
+-- Packaging (bottle, cap, label) is modelled as an ordinary recipe
+-- ingredient, not a separate concept — it's incurred making the unit
+-- regardless of sales channel. Postage/shipping packaging is kept
+-- separate on the SKU itself, since it's only a real cost for the online
+-- channel, never for an in-salon walk-in sale.
+create table public.retail_ingredients (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  purchase_price numeric(10,2) not null, -- what was actually paid for one purchase batch
+  purchase_quantity numeric(10,4) not null, -- how much that purchase batch contained, in `unit`
+  unit text not null, -- 'ml' | 'g' | 'each' — whatever the ingredient is naturally measured in
+  notes text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table public.retail_skus (
+  id uuid primary key default gen_random_uuid(),
+  name text not null, -- e.g. 'Glass Blonde Hair Serum'
+  description text,
+  in_salon_price numeric(10,2),
+  online_price numeric(10,2),
+  -- Postage + shipping packaging (mailer, tape, courier/postage cost) for
+  -- one unit sold online — deliberately NOT part of the recipe below,
+  -- since an in-salon sale never incurs it.
+  shipping_packaging_cost numeric(10,2),
+  is_active boolean not null default true,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+-- The formula: which ingredients, and how much of each, go into one unit
+-- of a SKU. `quantity_used` is in the ingredient's own `unit` — a 50ml
+-- serum using 45ml of a base oil ingredient stores quantity_used = 45.
+create table public.retail_recipe_items (
+  id uuid primary key default gen_random_uuid(),
+  sku_id uuid not null references public.retail_skus(id) on delete cascade,
+  ingredient_id uuid not null references public.retail_ingredients(id) on delete cascade,
+  quantity_used numeric(10,4) not null,
+  created_at timestamptz not null default now(),
+  unique (sku_id, ingredient_id) -- re-adding the same ingredient to a recipe updates its quantity, not a duplicate line
+);
+
+alter table public.retail_ingredients enable row level security;
+alter table public.retail_skus enable row level security;
+alter table public.retail_recipe_items enable row level security;
+
+create policy "owner_manager_retail_ingredients" on public.retail_ingredients
+  for all using (public.current_user_role() in ('owner', 'manager', 'admin'));
+create policy "owner_manager_retail_skus" on public.retail_skus
+  for all using (public.current_user_role() in ('owner', 'manager', 'admin'));
+create policy "owner_manager_retail_recipe_items" on public.retail_recipe_items
+  for all using (public.current_user_role() in ('owner', 'manager', 'admin'));
+
+-- =====================================================================
 -- End of schema v1
 -- =====================================================================

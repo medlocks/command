@@ -68,6 +68,20 @@ export function SettingsPage() {
           <span className="shrink-0 text-[var(--color-ink-muted)]">→</span>
         </Card>
       </Link>
+      <Link to="/product-line" className="block">
+        <Card className="flex items-center justify-between transition-shadow hover:shadow-md active:shadow-sm">
+          <div>
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-[var(--color-ink-muted)]">
+              Product Line
+            </h2>
+            <p className="mt-1 text-sm text-[var(--color-ink-secondary)]">
+              MedLocks' own manufactured products — real cost per unit from ingredient prices and a recipe, margin
+              by sales channel.
+            </p>
+          </div>
+          <span className="shrink-0 text-[var(--color-ink-muted)]">→</span>
+        </Card>
+      </Link>
       <Link to="/data-import" className="block">
         <Card className="flex items-center justify-between transition-shadow hover:shadow-md active:shadow-sm">
           <div>

@@ -1242,6 +1242,207 @@ async function handleIndustryBenchmarkRemove(payload: unknown): Promise<Response
 }
 
 // ---------------------------------------------------------------------
+// MedLocks retail product line (added 5 Sep 2026) — a separate business
+// domain from salon services (manufacturing + retail, not stylists/
+// appointments). Deliberately separate tables from the salon's own
+// `products` (operational stock), not a shared concept. Cost-per-unit is
+// never written directly — it's always recomputed server-side in
+// warehouse-read from real ingredient purchase prices and recipe
+// quantities, so changing one ingredient's price recomputes every SKU
+// using it, rather than needing every affected SKU hand-edited.
+// ---------------------------------------------------------------------
+
+interface RetailIngredientPayload {
+  name: string;
+  purchasePrice: number;
+  purchaseQuantity: number;
+  unit: string;
+  notes?: string | null;
+}
+
+async function handleRetailIngredientCommit(payload: unknown): Promise<Response> {
+  const p = payload as Partial<RetailIngredientPayload> | null;
+  if (!p || typeof p.name !== 'string' || !p.name.trim()) {
+    return jsonResponse({ ok: false, error: 'name is required' }, 400);
+  }
+  if (typeof p.purchasePrice !== 'number' || !Number.isFinite(p.purchasePrice) || p.purchasePrice < 0) {
+    return jsonResponse({ ok: false, error: 'purchasePrice must be a non-negative number' }, 400);
+  }
+  if (typeof p.purchaseQuantity !== 'number' || !Number.isFinite(p.purchaseQuantity) || p.purchaseQuantity <= 0) {
+    return jsonResponse({ ok: false, error: 'purchaseQuantity must be a positive number' }, 400);
+  }
+  if (typeof p.unit !== 'string' || !p.unit.trim()) {
+    return jsonResponse({ ok: false, error: 'unit is required' }, 400);
+  }
+
+  const { data, error } = await supabase
+    .from('retail_ingredients')
+    .insert({
+      name: p.name.trim(),
+      purchase_price: p.purchasePrice,
+      purchase_quantity: p.purchaseQuantity,
+      unit: p.unit.trim(),
+      notes: p.notes ?? null,
+    })
+    .select('id')
+    .single();
+  if (error) return jsonResponse({ ok: false, error: error.message }, 500);
+
+  return jsonResponse({ ok: true, rowsWritten: 1, id: data.id });
+}
+
+interface RetailIngredientUpdatePayload extends Partial<RetailIngredientPayload> {
+  id: string;
+}
+
+async function handleRetailIngredientUpdate(payload: unknown): Promise<Response> {
+  const p = payload as Partial<RetailIngredientUpdatePayload> | null;
+  if (!p || typeof p.id !== 'string' || !p.id) {
+    return jsonResponse({ ok: false, error: 'id is required' }, 400);
+  }
+
+  const fields: Record<string, unknown> = {};
+  if (p.name !== undefined) {
+    if (typeof p.name !== 'string' || !p.name.trim()) return jsonResponse({ ok: false, error: 'name cannot be empty' }, 400);
+    fields.name = p.name.trim();
+  }
+  if (p.purchasePrice !== undefined) {
+    if (typeof p.purchasePrice !== 'number' || !Number.isFinite(p.purchasePrice) || p.purchasePrice < 0) {
+      return jsonResponse({ ok: false, error: 'purchasePrice must be a non-negative number' }, 400);
+    }
+    fields.purchase_price = p.purchasePrice;
+  }
+  if (p.purchaseQuantity !== undefined) {
+    if (typeof p.purchaseQuantity !== 'number' || !Number.isFinite(p.purchaseQuantity) || p.purchaseQuantity <= 0) {
+      return jsonResponse({ ok: false, error: 'purchaseQuantity must be a positive number' }, 400);
+    }
+    fields.purchase_quantity = p.purchaseQuantity;
+  }
+  if (p.unit !== undefined) {
+    if (typeof p.unit !== 'string' || !p.unit.trim()) return jsonResponse({ ok: false, error: 'unit cannot be empty' }, 400);
+    fields.unit = p.unit.trim();
+  }
+  if (p.notes !== undefined) fields.notes = p.notes;
+  if (Object.keys(fields).length === 0) return jsonResponse({ ok: false, error: 'Nothing to update' }, 400);
+  fields.updated_at = new Date().toISOString();
+
+  const { error } = await supabase.from('retail_ingredients').update(fields).eq('id', p.id);
+  if (error) return jsonResponse({ ok: false, error: error.message }, 500);
+
+  return jsonResponse({ ok: true, rowsWritten: 1 });
+}
+
+async function handleRetailIngredientRemove(payload: unknown): Promise<Response> {
+  const p = payload as { id?: string } | null;
+  if (!p || typeof p.id !== 'string' || !p.id) {
+    return jsonResponse({ ok: false, error: 'id is required' }, 400);
+  }
+  // Hard delete, deliberately — this is an internal costing tool with no
+  // customer-facing history to preserve, unlike salon client/appointment
+  // data. Cascades to any recipe lines using this ingredient.
+  const { error } = await supabase.from('retail_ingredients').delete().eq('id', p.id);
+  if (error) return jsonResponse({ ok: false, error: error.message }, 500);
+
+  return jsonResponse({ ok: true, rowsWritten: 1 });
+}
+
+interface RetailSkuPayload {
+  name: string;
+  description?: string | null;
+  inSalonPrice?: number | null;
+  onlinePrice?: number | null;
+  shippingPackagingCost?: number | null;
+}
+
+async function handleRetailSkuCommit(payload: unknown): Promise<Response> {
+  const p = payload as Partial<RetailSkuPayload> | null;
+  if (!p || typeof p.name !== 'string' || !p.name.trim()) {
+    return jsonResponse({ ok: false, error: 'name is required' }, 400);
+  }
+
+  const { data, error } = await supabase
+    .from('retail_skus')
+    .insert({
+      name: p.name.trim(),
+      description: p.description ?? null,
+      in_salon_price: p.inSalonPrice ?? null,
+      online_price: p.onlinePrice ?? null,
+      shipping_packaging_cost: p.shippingPackagingCost ?? null,
+    })
+    .select('id')
+    .single();
+  if (error) return jsonResponse({ ok: false, error: error.message }, 500);
+
+  return jsonResponse({ ok: true, rowsWritten: 1, id: data.id });
+}
+
+interface RetailSkuUpdatePayload extends Partial<RetailSkuPayload> {
+  id: string;
+  isActive?: boolean;
+}
+
+async function handleRetailSkuUpdate(payload: unknown): Promise<Response> {
+  const p = payload as Partial<RetailSkuUpdatePayload> | null;
+  if (!p || typeof p.id !== 'string' || !p.id) {
+    return jsonResponse({ ok: false, error: 'id is required' }, 400);
+  }
+
+  const fields: Record<string, unknown> = {};
+  if (p.name !== undefined) {
+    if (typeof p.name !== 'string' || !p.name.trim()) return jsonResponse({ ok: false, error: 'name cannot be empty' }, 400);
+    fields.name = p.name.trim();
+  }
+  if (p.description !== undefined) fields.description = p.description;
+  if (p.inSalonPrice !== undefined) fields.in_salon_price = p.inSalonPrice;
+  if (p.onlinePrice !== undefined) fields.online_price = p.onlinePrice;
+  if (p.shippingPackagingCost !== undefined) fields.shipping_packaging_cost = p.shippingPackagingCost;
+  if (p.isActive !== undefined) fields.is_active = p.isActive;
+  if (Object.keys(fields).length === 0) return jsonResponse({ ok: false, error: 'Nothing to update' }, 400);
+  fields.updated_at = new Date().toISOString();
+
+  const { error } = await supabase.from('retail_skus').update(fields).eq('id', p.id);
+  if (error) return jsonResponse({ ok: false, error: error.message }, 500);
+
+  return jsonResponse({ ok: true, rowsWritten: 1 });
+}
+
+interface RetailRecipeItemPayload {
+  skuId: string;
+  ingredientId: string;
+  quantityUsed: number;
+}
+
+async function handleRetailRecipeItemCommit(payload: unknown): Promise<Response> {
+  const p = payload as Partial<RetailRecipeItemPayload> | null;
+  if (!p || typeof p.skuId !== 'string' || !p.skuId) return jsonResponse({ ok: false, error: 'skuId is required' }, 400);
+  if (typeof p.ingredientId !== 'string' || !p.ingredientId) return jsonResponse({ ok: false, error: 'ingredientId is required' }, 400);
+  if (typeof p.quantityUsed !== 'number' || !Number.isFinite(p.quantityUsed) || p.quantityUsed <= 0) {
+    return jsonResponse({ ok: false, error: 'quantityUsed must be a positive number' }, 400);
+  }
+
+  const { error } = await supabase
+    .from('retail_recipe_items')
+    .upsert(
+      { sku_id: p.skuId, ingredient_id: p.ingredientId, quantity_used: p.quantityUsed },
+      { onConflict: 'sku_id,ingredient_id' },
+    );
+  if (error) return jsonResponse({ ok: false, error: error.message }, 500);
+
+  return jsonResponse({ ok: true, rowsWritten: 1 });
+}
+
+async function handleRetailRecipeItemRemove(payload: unknown): Promise<Response> {
+  const p = payload as { id?: string } | null;
+  if (!p || typeof p.id !== 'string' || !p.id) {
+    return jsonResponse({ ok: false, error: 'id is required' }, 400);
+  }
+  const { error } = await supabase.from('retail_recipe_items').delete().eq('id', p.id);
+  if (error) return jsonResponse({ ok: false, error: error.message }, 500);
+
+  return jsonResponse({ ok: true, rowsWritten: 1 });
+}
+
+// ---------------------------------------------------------------------
 // dispatch
 // ---------------------------------------------------------------------
 
@@ -1262,7 +1463,10 @@ interface RequestBody {
     | 'service_product_usage'
     | 'industry_benchmarks'
     | 'recommendations'
-    | 'client_insight_dismissal';
+    | 'client_insight_dismissal'
+    | 'retail_ingredients'
+    | 'retail_skus'
+    | 'retail_recipe_items';
   action: 'commit' | 'sync_cycle' | 'update' | 'remove' | 'resolve';
   rows?: unknown;
   payload?: unknown;
@@ -1325,6 +1529,25 @@ Deno.serve(async (req) => {
     if (body.action === 'update') return handleIndustryBenchmarkUpdate(body.payload);
     if (body.action === 'remove') return handleIndustryBenchmarkRemove(body.payload);
     return jsonResponse({ ok: false, error: 'Unknown action for industry_benchmarks' }, 400);
+  }
+
+  if (body.entity === 'retail_ingredients') {
+    if (body.action === 'commit') return handleRetailIngredientCommit(body.payload);
+    if (body.action === 'update') return handleRetailIngredientUpdate(body.payload);
+    if (body.action === 'remove') return handleRetailIngredientRemove(body.payload);
+    return jsonResponse({ ok: false, error: 'Unknown action for retail_ingredients' }, 400);
+  }
+
+  if (body.entity === 'retail_skus') {
+    if (body.action === 'commit') return handleRetailSkuCommit(body.payload);
+    if (body.action === 'update') return handleRetailSkuUpdate(body.payload);
+    return jsonResponse({ ok: false, error: 'Unknown action for retail_skus' }, 400);
+  }
+
+  if (body.entity === 'retail_recipe_items') {
+    if (body.action === 'commit') return handleRetailRecipeItemCommit(body.payload);
+    if (body.action === 'remove') return handleRetailRecipeItemRemove(body.payload);
+    return jsonResponse({ ok: false, error: 'Unknown action for retail_recipe_items' }, 400);
   }
 
   if (body.action !== 'commit') {

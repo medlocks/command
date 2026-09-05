@@ -289,3 +289,70 @@ export function updateIndustryBenchmark(payload: { id: string } & Partial<Indust
 export function removeIndustryBenchmark(payload: { id: string }): Promise<WarehouseWriteResult> {
   return callFunction({ entity: 'industry_benchmarks', action: 'remove', payload });
 }
+
+// ---------------------------------------------------------------------
+// MedLocks retail product line (added 5 Sep 2026)
+// ---------------------------------------------------------------------
+
+/** Adds a real ingredient/component (raw ingredient or packaging item — modelled the same way) at what it was actually bought for. Cost per base unit is derived server-side, never entered directly. */
+export function commitRetailIngredient(payload: {
+  name: string;
+  purchasePrice: number;
+  purchaseQuantity: number;
+  unit: string;
+  notes?: string | null;
+}): Promise<WarehouseWriteResult> {
+  return callFunction({ entity: 'retail_ingredients', action: 'commit', payload });
+}
+
+export function updateRetailIngredient(payload: {
+  id: string;
+  name?: string;
+  purchasePrice?: number;
+  purchaseQuantity?: number;
+  unit?: string;
+  notes?: string | null;
+}): Promise<WarehouseWriteResult> {
+  return callFunction({ entity: 'retail_ingredients', action: 'update', payload });
+}
+
+/** A real hard delete — an internal costing tool, not customer data. Cascades to any recipe lines using this ingredient. */
+export function removeRetailIngredient(payload: { id: string }): Promise<WarehouseWriteResult> {
+  return callFunction({ entity: 'retail_ingredients', action: 'remove', payload });
+}
+
+/** Adds a real SKU. `inSalonPrice`/`onlinePrice`/`shippingPackagingCost` are all optional — a SKU can exist (and show its production cost) before real selling prices are settled. */
+export function commitRetailSku(payload: {
+  name: string;
+  description?: string | null;
+  inSalonPrice?: number | null;
+  onlinePrice?: number | null;
+  shippingPackagingCost?: number | null;
+}): Promise<WarehouseWriteResult> {
+  return callFunction({ entity: 'retail_skus', action: 'commit', payload });
+}
+
+export function updateRetailSku(payload: {
+  id: string;
+  name?: string;
+  description?: string | null;
+  inSalonPrice?: number | null;
+  onlinePrice?: number | null;
+  shippingPackagingCost?: number | null;
+  isActive?: boolean;
+}): Promise<WarehouseWriteResult> {
+  return callFunction({ entity: 'retail_skus', action: 'update', payload });
+}
+
+/** Adds/updates one line of a SKU's recipe — an upsert keyed on (skuId, ingredientId), so re-adding the same ingredient corrects its quantity rather than duplicating the line. */
+export function commitRetailRecipeItem(payload: {
+  skuId: string;
+  ingredientId: string;
+  quantityUsed: number;
+}): Promise<WarehouseWriteResult> {
+  return callFunction({ entity: 'retail_recipe_items', action: 'commit', payload });
+}
+
+export function removeRetailRecipeItem(payload: { id: string }): Promise<WarehouseWriteResult> {
+  return callFunction({ entity: 'retail_recipe_items', action: 'remove', payload });
+}
