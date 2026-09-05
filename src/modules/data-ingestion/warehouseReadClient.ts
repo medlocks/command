@@ -84,6 +84,10 @@ export interface ColourTopUpDue {
   lastVisitDate: string;
   averageIntervalDays: number;
   isLowConfidence: boolean;
+  /** For the win-back draft action (added 5 Sep 2026) — real contact details, null if not on file. `marketingConsent` gates the action itself, not just its visibility — see `DraftWinBackButton`. */
+  email: string | null;
+  mobile: string | null;
+  marketingConsent: boolean;
 }
 
 export interface LapseRiskFlag {
@@ -94,6 +98,9 @@ export interface LapseRiskFlag {
   daysSinceLastVisit: number;
   averageIntervalDays: number;
   isLowConfidence: boolean;
+  email: string | null;
+  mobile: string | null;
+  marketingConsent: boolean;
 }
 
 /** A flag that would otherwise appear in `colourTopUpsDue`/`lapseRisk` but has an active manual dismissal — see `client_insight_dismissals`' own schema comment for the clears-on-next-real-visit design. */

@@ -10,6 +10,7 @@ import {
   type LapseRiskFlag,
 } from '@/modules/data-ingestion/warehouseReadClient';
 import { commitInsightDismissal, removeInsightDismissal } from '@/modules/data-ingestion/warehouseWriteClient';
+import { DraftWinBackButton, draftColourTopUpMessage, draftLapseRiskMessage } from './DraftWinBackButton';
 
 const currency = new Intl.NumberFormat('en-GB', { style: 'currency', currency: 'GBP', maximumFractionDigits: 0 });
 const dateLabel = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
@@ -155,8 +156,15 @@ function TopUpRow({ flag, onDismissed }: { flag: ColourTopUpDue; onDismissed: ()
       {expanded && (
         <div className="pb-3">
           <ClientHistoryRows clientName={flag.clientName} />
-          <div className="mt-2">
+          <div className="mt-2 flex items-center justify-between gap-2">
             <DismissControl clientId={flag.clientId} insightType="colour-top-up" category="Colour Services" onDismissed={onDismissed} />
+            <DraftWinBackButton
+              clientName={flag.clientName}
+              email={flag.email}
+              mobile={flag.mobile}
+              marketingConsent={flag.marketingConsent}
+              message={draftColourTopUpMessage(flag.clientName, flag.daysUntilDue)}
+            />
           </div>
         </div>
       )}
@@ -182,8 +190,15 @@ function LapseRiskRow({ flag, onDismissed }: { flag: LapseRiskFlag; onDismissed:
       {expanded && (
         <div className="pb-3">
           <ClientHistoryRows clientName={flag.clientName} />
-          <div className="mt-2">
+          <div className="mt-2 flex items-center justify-between gap-2">
             <DismissControl clientId={flag.clientId} insightType="lapse-risk" category={flag.category} onDismissed={onDismissed} />
+            <DraftWinBackButton
+              clientName={flag.clientName}
+              email={flag.email}
+              mobile={flag.mobile}
+              marketingConsent={flag.marketingConsent}
+              message={draftLapseRiskMessage(flag.clientName, flag.daysSinceLastVisit)}
+            />
           </div>
         </div>
       )}

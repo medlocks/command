@@ -514,12 +514,20 @@ async function handleClientInsightLists(): Promise<Response> {
       .select('client_name, category, scheduled_date')
       .in('status', REAL_WORK_STATUSES)
       .lte('scheduled_date', today),
-    supabase.from('clients').select('id, full_name, profiling_opt_out').is('deleted_at', null),
+    supabase.from('clients').select('id, full_name, profiling_opt_out, email, mobile, marketing_consent').is('deleted_at', null),
     supabase.from('client_insight_dismissals').select('client_id, insight_type, category, note, dismissed_at'),
   ]);
   if (apptError) return jsonResponse({ ok: false, error: apptError.message }, 500);
   if (clientError) return jsonResponse({ ok: false, error: clientError.message }, 500);
   if (dismissalError) return jsonResponse({ ok: false, error: dismissalError.message }, 500);
+
+  // For the win-back draft action (added 5 Sep 2026) — real contact
+  // details plus the real GDPR consent flag, so the draft action can be
+  // withheld (not just hidden — see the frontend's own check) for anyone
+  // who hasn't actually opted in to marketing contact.
+  const contactById = new Map(
+    (clients ?? []).map((c) => [c.id, { email: c.email as string | null, mobile: c.mobile as string | null, marketingConsent: c.marketing_consent as boolean }]),
+  );
 
   // Keyed by clientId::insightType::category — matches `client_insight_dismissals`'
   // own unique constraint. "Still active" (not yet cleared by a fresh real
@@ -579,6 +587,7 @@ async function handleClientInsightLists(): Promise<Response> {
     if (group.category === COLOUR_CATEGORY) {
       const daysUntilDue = daysBetween(today, prediction.predictedNextDueDate);
       if (daysUntilDue >= -TOP_UP_MAX_OVERDUE_DAYS && daysUntilDue <= TOP_UP_DUE_WINDOW_DAYS) {
+        const contact = contactById.get(group.clientId);
         const item = {
           clientId: group.clientId,
           clientName: group.clientName,
@@ -586,6 +595,9 @@ async function handleClientInsightLists(): Promise<Response> {
           lastVisitDate: prediction.lastVisitDate,
           averageIntervalDays: prediction.averageIntervalDays,
           isLowConfidence: prediction.isLowConfidence,
+          email: contact?.email ?? null,
+          mobile: contact?.mobile ?? null,
+          marketingConsent: contact?.marketingConsent ?? false,
         };
         const dismissal = activeDismissal(group.clientId, 'colour-top-up', group.category, prediction.lastVisitDate);
         if (dismissal) {
@@ -599,6 +611,7 @@ async function handleClientInsightLists(): Promise<Response> {
     if (prediction.visitCount >= 2) {
       const risk = scoreLapseRisk(prediction.lastVisitDate, prediction.averageIntervalDays, today);
       if (risk.isAtRisk) {
+        const contact = contactById.get(group.clientId);
         const item = {
           clientId: group.clientId,
           clientName: group.clientName,
@@ -607,6 +620,9 @@ async function handleClientInsightLists(): Promise<Response> {
           daysSinceLastVisit: risk.daysSinceLastVisit,
           averageIntervalDays: prediction.averageIntervalDays,
           isLowConfidence: prediction.isLowConfidence,
+          email: contact?.email ?? null,
+          mobile: contact?.mobile ?? null,
+          marketingConsent: contact?.marketingConsent ?? false,
         };
         const dismissal = activeDismissal(group.clientId, 'lapse-risk', group.category, prediction.lastVisitDate);
         if (dismissal) {
