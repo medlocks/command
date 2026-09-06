@@ -182,7 +182,7 @@ async function gatherRetentionSignal(): Promise<RetentionSignal> {
       .lte('scheduled_date', today),
     supabase
       .from('fresha_appointments')
-      .select('client_name, category, net_sales')
+      .select('client_name, category, net_sales, scheduled_date')
       .in('status', REAL_WORK_STATUSES)
       .gte('scheduled_date', priceCutoff)
       .lte('scheduled_date', today),
@@ -195,10 +195,25 @@ async function gatherRetentionSignal(): Promise<RetentionSignal> {
   if (dismissalError) throw new Error(dismissalError.message);
 
   const priceRowsClean = (priceRows ?? []).filter((r) => !r.client_name || !INTERNAL_BLOCK_CLIENT_NAMES.has(r.client_name));
-  const colourPriceRows = priceRowsClean.filter((r) => r.category === COLOUR_CATEGORY);
-  const avg = (list: { net_sales: number }[]) => (list.length > 0 ? list.reduce((sum, r) => sum + Number(r.net_sales), 0) / list.length : 0);
-  const averageColourPrice = avg(colourPriceRows);
-  const averageServicePrice = avg(priceRowsClean);
+
+  // Real visit, not per-line average (fixed 6 Sep 2026 — own copy of the
+  // same fix in warehouse-read's handleAveragePrices; see its comment for
+  // the full real-example evidence). A "colour visit" is valued at the
+  // full visit total, not just the colour line item.
+  const priceVisits = new Map<string, { total: number; hasColour: boolean }>();
+  for (const r of priceRowsClean) {
+    if (!r.scheduled_date) continue;
+    const key = `${r.client_name}::${r.scheduled_date}`;
+    const visit = priceVisits.get(key) ?? { total: 0, hasColour: false };
+    visit.total += Number(r.net_sales);
+    if (r.category === COLOUR_CATEGORY) visit.hasColour = true;
+    priceVisits.set(key, visit);
+  }
+  const allPriceVisits = Array.from(priceVisits.values());
+  const colourPriceVisits = allPriceVisits.filter((v) => v.hasColour);
+  const avg = (list: { total: number }[]) => (list.length > 0 ? list.reduce((sum, v) => sum + v.total, 0) / list.length : 0);
+  const averageColourPrice = avg(colourPriceVisits);
+  const averageServicePrice = avg(allPriceVisits);
 
   const contactById = new Map(
     (clients ?? []).map((c) => [c.id, { email: c.email as string | null, mobile: c.mobile as string | null, marketingConsent: c.marketing_consent as boolean }]),

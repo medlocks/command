@@ -860,18 +860,31 @@ order by 1 desc;
 -- AOV by month, salon-wide
 -- Points at `fresha_appointments` (real import), not the legacy mock
 -- `appointments` table — same class of fix `v_blended_cac_monthly` needed.
--- No retail_addon component: the real Fresha appointment export confirmed
--- has no itemized retail data per appointment (Section 3.1) — `net_sales`
--- is the real per-appointment revenue figure on its own. Status filter
--- uses the real confirmed value `'Completed'` (capital C), not the mock
--- table's lowercase `'completed'`. Decided 20 Aug 2026.
+--
+-- Fixed 6 Sep 2026: the original version (20 Aug 2026) averaged net_sales
+-- per ROW, on the wrong assumption that one row = one whole client visit.
+-- It doesn't — Fresha's real export gives one row per SERVICE BOOKED, so a
+-- single real visit with Toner + Full Head Foils + Cut & Finish shows up
+-- as three rows, each with only its own service's price. That silently
+-- halved the real AOV (confirmed against real Sep 2026 bookings: £42.97
+-- shown vs £81.65 real, averaged per visit). A real visit has no shared
+-- booking/order ID in Fresha's export, so (client_name, scheduled_date) is
+-- the best available real-visit key — two genuinely separate same-day
+-- visits by the same client would merge under this; accepted as rare.
+-- Status filter uses the real confirmed value `'Completed'` (capital C),
+-- not the mock table's lowercase `'completed'`.
 create or replace view public.v_aov_monthly as
+with per_visit as (
+  select client_name, scheduled_date, sum(net_sales) as visit_total
+  from public.fresha_appointments
+  where status = 'Completed' and scheduled_date is not null
+  group by client_name, scheduled_date
+)
 select
   date_trunc('month', scheduled_date)::date as month,
-  round(avg(net_sales), 2) as avg_order_value,
+  round(avg(visit_total), 2) as avg_order_value,
   count(*) as appointment_count
-from public.fresha_appointments
-where status = 'Completed' and scheduled_date is not null
+from per_visit
 group by 1
 order by 1 desc;
 

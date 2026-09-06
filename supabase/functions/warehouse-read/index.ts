@@ -1158,18 +1158,40 @@ async function handleAveragePrices(): Promise<Response> {
 
   const { data, error } = await supabase
     .from('fresha_appointments')
-    .select('client_name, category, net_sales')
+    .select('client_name, category, net_sales, scheduled_date')
     .in('status', REAL_WORK_STATUSES)
     .gte('scheduled_date', cutoffStr)
     .lte('scheduled_date', referenceDate);
   if (error) return jsonResponse({ ok: false, error: error.message }, 500);
 
   const rows = (data ?? []).filter((r) => !r.client_name || !INTERNAL_BLOCK_CLIENT_NAMES.has(r.client_name));
-  const colourRows = rows.filter((r) => r.category === COLOUR_CATEGORY);
-  const avg = (list: { net_sales: number }[]) =>
-    list.length > 0 ? Math.round((list.reduce((sum, r) => sum + Number(r.net_sales), 0) / list.length) * 100) / 100 : 0;
 
-  return jsonResponse({ ok: true, averageColourPrice: avg(colourRows), averageServicePrice: avg(rows) });
+  // Real visit = every service line a client booked on the same real date
+  // (fixed 6 Sep 2026, replacing a per-row average that treated
+  // "Balayage + Cut + Toner" as three separate small appointments instead
+  // of one real visit — confirmed against real bookings, e.g. a client's
+  // real visit: Toner £33 + Full Head Foils £75 + Cut & Finish £40, one
+  // real £148 visit, not three). A "colour visit" is now the FULL visit
+  // total for any visit containing a colour service, not just the colour
+  // line item's own price — a colour win-back returns the whole visit
+  // (cut, toner, blow-dry included), not just the colour portion. No
+  // shared booking/order ID exists in Fresha's export, so (client_name,
+  // scheduled_date) is the best available real-visit key.
+  const visits = new Map<string, { total: number; hasColour: boolean }>();
+  for (const r of rows) {
+    if (!r.scheduled_date) continue;
+    const key = `${r.client_name}::${r.scheduled_date}`;
+    const visit = visits.get(key) ?? { total: 0, hasColour: false };
+    visit.total += Number(r.net_sales);
+    if (r.category === COLOUR_CATEGORY) visit.hasColour = true;
+    visits.set(key, visit);
+  }
+  const allVisits = Array.from(visits.values());
+  const colourVisits = allVisits.filter((v) => v.hasColour);
+  const avg = (list: { total: number }[]) =>
+    list.length > 0 ? Math.round((list.reduce((sum, v) => sum + v.total, 0) / list.length) * 100) / 100 : 0;
+
+  return jsonResponse({ ok: true, averageColourPrice: avg(colourVisits), averageServicePrice: avg(allVisits) });
 }
 
 // ---------------------------------------------------------------------

@@ -32,7 +32,16 @@ const AOV_RANGE_PRESETS: DateRangePreset[] = [
   { label: 'Year to date', range: { start: yearStart(), end: today() } },
 ];
 
-/** Real Average Order Value (Requirements Section 5.9) — real `fresha_appointments.net_sales` only, no retail add-on component (the real Fresha export doesn't itemize retail per appointment). */
+/**
+ * Real Average Order Value (Requirements Section 5.9) — real
+ * `fresha_appointments.net_sales`, summed per real visit (client + date)
+ * before averaging, not per service line. Fixed 6 Sep 2026: Fresha's
+ * export gives one row per service booked, so a visit with several
+ * services (e.g. Balayage + Cut + Toner) previously undercounted AOV by
+ * roughly half — see `v_aov_monthly`'s own schema comment for the real
+ * before/after numbers. No retail add-on component (the real Fresha
+ * export doesn't itemize retail per appointment).
+ */
 export function RealAovCard() {
   const [result, setResult] = useState<AovMonthlyResult | null>(null);
   const [range, setRange] = useState<DateRange | null>(null);
@@ -58,7 +67,7 @@ export function RealAovCard() {
       <div className="mb-1 flex flex-wrap items-start justify-between gap-2">
         <div>
           <h2 className="text-sm font-semibold text-[var(--color-ink)]">Average Order Value (live)</h2>
-          <p className="text-xs text-[var(--color-ink-muted)]">Real net sales, averaged across completed appointments</p>
+          <p className="text-xs text-[var(--color-ink-muted)]">Real net sales, summed per visit then averaged across completed visits</p>
         </div>
         <DateRangePicker presets={AOV_RANGE_PRESETS} value={range} onChange={setRange} />
       </div>
