@@ -1668,6 +1668,46 @@ async function handleDebtDecisionRemove(payload: unknown): Promise<Response> {
   return jsonResponse({ ok: true, rowsWritten: 1 });
 }
 
+interface BusinessGoalPayload {
+  targetValuation: number;
+  targetDate: string;
+  multipleLow: number;
+  multipleHigh: number;
+}
+
+/** Sets the £1M-by-2030-style valuation goal (added 6 Sep 2026) — a singleton row, always upserted, seeded with Blake's own stated figures. Editable if the target amount/date changes, or a real professional appraisal suggests a different multiple range. */
+async function handleBusinessGoalSet(payload: unknown): Promise<Response> {
+  const p = payload as Partial<BusinessGoalPayload> | null;
+  if (!p) return jsonResponse({ ok: false, error: 'payload is required' }, 400);
+  if (typeof p.targetValuation !== 'number' || !Number.isFinite(p.targetValuation) || p.targetValuation <= 0) {
+    return jsonResponse({ ok: false, error: 'targetValuation must be a positive number' }, 400);
+  }
+  if (typeof p.targetDate !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(p.targetDate)) {
+    return jsonResponse({ ok: false, error: 'targetDate must be a YYYY-MM-DD date' }, 400);
+  }
+  if (typeof p.multipleLow !== 'number' || !Number.isFinite(p.multipleLow) || p.multipleLow <= 0) {
+    return jsonResponse({ ok: false, error: 'multipleLow must be a positive number' }, 400);
+  }
+  if (typeof p.multipleHigh !== 'number' || !Number.isFinite(p.multipleHigh) || p.multipleHigh < p.multipleLow) {
+    return jsonResponse({ ok: false, error: 'multipleHigh must be a number >= multipleLow' }, 400);
+  }
+
+  const { error } = await supabase.from('business_goal').upsert(
+    {
+      id: '00000000-0000-0000-0000-000000000001',
+      target_valuation: p.targetValuation,
+      target_date: p.targetDate,
+      valuation_multiple_low: p.multipleLow,
+      valuation_multiple_high: p.multipleHigh,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: 'id' },
+  );
+  if (error) return jsonResponse({ ok: false, error: error.message }, 500);
+
+  return jsonResponse({ ok: true, rowsWritten: 1 });
+}
+
 // ---------------------------------------------------------------------
 // dispatch
 // ---------------------------------------------------------------------
@@ -1696,7 +1736,8 @@ interface RequestBody {
     | 'retail_compliance_steps'
     | 'retail_production_batches'
     | 'business_overhead'
-    | 'business_debt_decisions';
+    | 'business_debt_decisions'
+    | 'business_goal';
   action: 'commit' | 'sync_cycle' | 'update' | 'remove' | 'resolve' | 'set_status';
   rows?: unknown;
   payload?: unknown;
@@ -1794,6 +1835,11 @@ Deno.serve(async (req) => {
   if (body.entity === 'business_overhead') {
     if (body.action === 'commit') return handleBusinessOverheadSet(body.payload);
     return jsonResponse({ ok: false, error: 'Unknown action for business_overhead' }, 400);
+  }
+
+  if (body.entity === 'business_goal') {
+    if (body.action === 'commit') return handleBusinessGoalSet(body.payload);
+    return jsonResponse({ ok: false, error: 'Unknown action for business_goal' }, 400);
   }
 
   if (body.entity === 'business_debt_decisions') {

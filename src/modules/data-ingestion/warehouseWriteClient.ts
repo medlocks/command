@@ -381,6 +381,11 @@ export function removeDebtDecision(payload: { id: string }): Promise<WarehouseWr
   return callFunction({ entity: 'business_debt_decisions', action: 'remove', payload });
 }
 
+/** Sets the £1M-by-2030-style valuation goal (added 6 Sep 2026) — a singleton row, always upserted. */
+export function setBusinessGoal(payload: { targetValuation: number; targetDate: string; multipleLow: number; multipleHigh: number }): Promise<WarehouseWriteResult> {
+  return callFunction({ entity: 'business_goal', action: 'commit', payload });
+}
+
 export function removeRetailProductionBatch(payload: { id: string }): Promise<WarehouseWriteResult> {
   return callFunction({ entity: 'retail_production_batches', action: 'remove', payload });
 }

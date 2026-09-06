@@ -6,14 +6,15 @@ import { IndicatorPanel } from './components/IndicatorPanel';
 import { RiskMeter } from './components/RiskMeter';
 import { DebtDecisionSection } from './components/DebtDecisionSection';
 import { FinancialBenchmarksCard } from './components/FinancialBenchmarksCard';
+import { ValuationGoalCard } from './components/ValuationGoalCard';
 import { DraftJobPostButton } from './DraftJobPostButton';
 import { buildRealTodoListCandidates } from './realTodoListInput';
 import { buildRealHeadlineMetrics } from './realHeadlineMetrics';
 import { buildRealHiringSignal } from './realHiringSignal';
 import { buildRealBusinessRisk } from './realBusinessRisk';
 import { useRecommendationOverrides } from '@/modules/recommendations/RecommendationOverridesProvider';
-import type { BusinessOverhead } from '@/modules/data-ingestion/warehouseReadClient';
-import type { BusinessRisk, FinancialBenchmarks, HeadlineMetric, HiringSignal } from '@/modules/insight-engine';
+import type { BusinessGoal, BusinessOverhead } from '@/modules/data-ingestion/warehouseReadClient';
+import type { BusinessRisk, FinancialBenchmarks, HeadlineMetric, HiringSignal, ValuationGoal } from '@/modules/insight-engine';
 
 const HIRING_SIGNAL_WINDOW_OPTIONS = [4, 6, 8, 12];
 const SELECT_CLASSES =
@@ -49,6 +50,8 @@ export function HomePage() {
   const [hiringWindowWeeks, setHiringWindowWeeks] = useState(6);
   const [businessRisk, setBusinessRisk] = useState<BusinessRisk | null>(null);
   const [financialBenchmarks, setFinancialBenchmarks] = useState<FinancialBenchmarks | null>(null);
+  const [valuationGoal, setValuationGoal] = useState<ValuationGoal | null>(null);
+  const [goalSettings, setGoalSettings] = useState<BusinessGoal | null>(null);
   const [businessOverhead, setBusinessOverhead] = useState<BusinessOverhead | null>(null);
   const [operatingCashFlow30d, setOperatingCashFlow30d] = useState(0);
   const [committedDebtMonthlyRepayments, setCommittedDebtMonthlyRepayments] = useState(0);
@@ -117,6 +120,8 @@ export function HomePage() {
       setRiskError(null);
       setBusinessRisk(result.risk);
       setFinancialBenchmarks(result.benchmarks);
+      setValuationGoal(result.goal);
+      setGoalSettings(result.goalSettings);
       setBusinessOverhead(result.overhead);
       setOperatingCashFlow30d(result.operatingCashFlow30d);
       setCommittedDebtMonthlyRepayments(result.committedDebtMonthlyRepayments);
@@ -196,6 +201,7 @@ export function HomePage() {
       )}
       {businessRisk && <RiskMeter risk={businessRisk} overhead={businessOverhead} onOverheadSaved={loadBusinessRisk} />}
       {financialBenchmarks && <FinancialBenchmarksCard benchmarks={financialBenchmarks} />}
+      {valuationGoal && goalSettings && <ValuationGoalCard goal={valuationGoal} goalSettings={goalSettings} onGoalSaved={loadBusinessRisk} />}
       {businessRisk && (
         <DebtDecisionSection
           overhead={businessOverhead}

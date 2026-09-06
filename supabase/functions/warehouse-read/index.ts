@@ -1938,6 +1938,7 @@ async function handleBusinessRiskInputs(): Promise<Response> {
     { data: retailBatches, error: retailBatchesError },
     { data: overheadRow, error: overheadError },
     { data: committedDebtRows, error: committedDebtError },
+    { data: goalRow, error: goalError },
   ] = await Promise.all([
     supabase
       .from('fresha_appointments')
@@ -1969,14 +1970,23 @@ async function handleBusinessRiskInputs(): Promise<Response> {
     supabase.from('retail_production_batches').select('sku_id, quantity_made'),
     supabase.from('business_overhead').select('monthly_rent, monthly_insurance, monthly_loan_repayments, monthly_other_fixed_costs, cash_reserves').maybeSingle(),
     supabase.from('business_debt_decisions').select('monthly_repayment').eq('status', 'committed'),
+    supabase.from('business_goal').select('target_valuation, target_date, valuation_multiple_low, valuation_multiple_high').maybeSingle(),
   ]);
   for (const e of [
     revenueError, concentrationError, cacError, stylistsError, profApptError, wagesError,
-    hoursError, costsError, patternError, leaveError, ingredientsError, recipeError, retailBatchesError, overheadError, committedDebtError,
+    hoursError, costsError, patternError, leaveError, ingredientsError, recipeError, retailBatchesError, overheadError, committedDebtError, goalError,
   ]) {
     if (e) return jsonResponse({ ok: false, error: e.message }, 500);
   }
   const committedDebtMonthlyRepayments = (committedDebtRows ?? []).reduce((sum, d) => sum + Number(d.monthly_repayment), 0);
+  const goal = goalRow
+    ? {
+        targetValuation: Number(goalRow.target_valuation),
+        targetDate: goalRow.target_date as string,
+        multipleLow: Number(goalRow.valuation_multiple_low),
+        multipleHigh: Number(goalRow.valuation_multiple_high),
+      }
+    : null;
 
   // Revenue pace — pure sums, unaffected by the row-per-service-line grain
   // (see v_aov_monthly's own comment: SUM survives grouping, only AVG
@@ -2110,6 +2120,7 @@ async function handleBusinessRiskInputs(): Promise<Response> {
     operatingProductCost30d: Math.round(operatingProductCost30d * 100) / 100,
     overhead,
     committedDebtMonthlyRepayments: Math.round(committedDebtMonthlyRepayments * 100) / 100,
+    goal,
   });
 }
 

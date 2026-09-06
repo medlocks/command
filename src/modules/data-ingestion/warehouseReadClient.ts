@@ -587,7 +587,16 @@ export interface BusinessRiskInputsResult {
   overhead?: BusinessOverhead | null;
   /** Real sum of every committed debt/investment decision's monthly repayment (added 6 Sep 2026, Debt Decision Justifier). */
   committedDebtMonthlyRepayments?: number;
+  /** Real £1M-by-2030-style valuation goal settings (added 6 Sep 2026) — null only if the seeded singleton row is somehow missing. */
+  goal?: BusinessGoal | null;
   error?: string;
+}
+
+export interface BusinessGoal {
+  targetValuation: number;
+  targetDate: string;
+  multipleLow: number;
+  multipleHigh: number;
 }
 
 export interface DebtDecision {

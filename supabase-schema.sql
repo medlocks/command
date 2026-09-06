@@ -1108,6 +1108,24 @@ create table public.business_debt_decisions (
   updated_at timestamptz not null default now()
 );
 
+-- Path to £1M valuation goal (added 6 Sep 2026, per direct request — "a
+-- tracker to ultimate goal of 1 million company value by 2030"). Singleton
+-- row (fixed id), seeded with Blake's own stated figures. The multiple
+-- range is a real, sourced small-salon valuation heuristic (1.15x-2.8x SDE
+-- depending on transferability/staff stability — see `valuationGoal.ts`'s
+-- own doc comment for the exact sources), not a professional appraisal —
+-- editable here if a real one is ever obtained. "Current valuation" is
+-- never shown as a single fake-precise number: always a low/high range
+-- from real trailing operating profit × this multiple range.
+create table public.business_goal (
+  id uuid primary key default '00000000-0000-0000-0000-000000000001',
+  target_valuation numeric(12,2) not null default 1000000,
+  target_date date not null default '2030-12-31',
+  valuation_multiple_low numeric(4,2) not null default 1.5,
+  valuation_multiple_high numeric(4,2) not null default 2.5,
+  updated_at timestamptz not null default now()
+);
+
 -- Real UK cosmetic-product legal requirements before a product can be sold
 -- (added 6 Sep 2026) — sourced from the Office for Product Safety and
 -- Standards' SCPN regime (UK Cosmetic Products Enforcement Regulations
@@ -1135,6 +1153,7 @@ alter table public.retail_ingredient_price_tiers enable row level security;
 alter table public.retail_production_batches enable row level security;
 alter table public.business_overhead enable row level security;
 alter table public.business_debt_decisions enable row level security;
+alter table public.business_goal enable row level security;
 
 create policy "owner_manager_retail_ingredients" on public.retail_ingredients
   for all using (public.current_user_role() in ('owner', 'manager', 'admin'));
@@ -1151,6 +1170,8 @@ create policy "owner_manager_retail_production_batches" on public.retail_product
 create policy "owner_manager_business_overhead" on public.business_overhead
   for all using (public.current_user_role() in ('owner', 'manager', 'admin'));
 create policy "owner_manager_business_debt_decisions" on public.business_debt_decisions
+  for all using (public.current_user_role() in ('owner', 'manager', 'admin'));
+create policy "owner_manager_business_goal" on public.business_goal
   for all using (public.current_user_role() in ('owner', 'manager', 'admin'));
 
 -- =====================================================================
