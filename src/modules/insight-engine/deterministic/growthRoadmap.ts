@@ -39,6 +39,50 @@ const UTILIZATION_TARGET = 0.75;
 
 const pct = (value: number) => `${Math.round(value * 100)}%`;
 
+/**
+ * Real physical fact from the owner (6 Sep 2026) — the current salon has
+ * space for 4 stylist chairs/stations. Update this constant if the site's
+ * real capacity changes (a fit-out, a move, an extra room). Filling this
+ * out is the cheapest, lowest-risk growth lever available — no new rent,
+ * no new lease, no new premises to find — so the roadmap gates
+ * second-location readiness on this being genuinely full first, not just
+ * on the other stages holding.
+ */
+const CURRENT_SALON_CHAIR_CAPACITY = 4;
+
+/**
+ * Turns an already-computed real active-stylist count into a stage card —
+ * shared by the mock path and the real cutover, same pattern as every
+ * other stage builder here. Deliberately first in the stage order: "is
+ * there still room to grow at zero real-estate cost" is the precondition
+ * a second-location conversation should check before anything else.
+ */
+export function buildCurrentSiteCapacityStage(
+  activeStylistCount: number,
+  chairCapacity: number = CURRENT_SALON_CHAIR_CAPACITY,
+): RoadmapStage {
+  const emptyChairs = Math.max(chairCapacity - activeStylistCount, 0);
+  const status: StageStatus = emptyChairs === 0 ? 'achieved' : emptyChairs === 1 ? 'on-track' : 'behind';
+
+  return {
+    id: 'current-site-capacity',
+    title: 'Fill the current salon before a second site',
+    status,
+    progress: Math.min(activeStylistCount / chairCapacity, 1),
+    metricLabel: 'Chairs filled',
+    metricValue: `${activeStylistCount}/${chairCapacity}`,
+    targetLabel: `All ${chairCapacity} chairs filled`,
+    narrative:
+      status === 'achieved'
+        ? `All ${chairCapacity} chairs at the current salon are filled — you're genuinely at physical capacity here, which is the point a second location's economics actually start to make sense (assuming the other stages below hold too).`
+        : `${activeStylistCount} of ${chairCapacity} chairs filled at the current salon — ${emptyChairs} empty chair${emptyChairs === 1 ? '' : 's'} still available on-site. A second location is a much bigger bet (new rent, new lease, a whole new team to build) than filling the space you already have.`,
+    nextStep:
+      status === 'achieved'
+        ? `Every chair is full — the real question now is whether demand still exceeds this site's capacity (see the Capacity Pressure stage) and, if so, whether a ${chairCapacity + 1}th chair could physically fit before jumping to a second site.`
+        : `Fill the empty chair${emptyChairs === 1 ? '' : 's'} here first — check the Hiring Signal on Home for whether real demand actually supports it right now. That's a far cheaper, lower-risk move than opening a second location.`,
+  };
+}
+
 /** Exported for the real cutover (`realGrowthRoadmap.ts`) — pure calendar math, not business logic, so reusing it directly across the mock/real boundary doesn't carry the same "don't share code" concerns that apply to actual computed facts (same reasoning as Stage 1's "consumer computes period boundaries" call). */
 export function monthBounds(referenceDate: string, monthsAgo: number): { start: string; end: string } {
   const ref = new Date(`${referenceDate}T00:00:00Z`);
@@ -276,7 +320,10 @@ export function buildGrowthRoadmap(input: {
   productCosts: readonly ProductCostEntry[];
   referenceDate: string;
 }): GrowthRoadmap {
+  const activeStylistCount = input.stylists.filter((s) => s.employmentStatus === 'active').length;
+
   const stages: RoadmapStage[] = [
+    buildCurrentSiteCapacityStage(activeStylistCount),
     computeRetentionStage(input.appointments, input.clients, input.referenceDate),
     computeProfitabilityStage(input.appointments, input.stylists, input.productCosts, input.referenceDate),
     computeUtilizationStage(input.appointments, input.stylists, input.productCosts, input.referenceDate),

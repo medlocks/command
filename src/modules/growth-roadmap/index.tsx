@@ -141,7 +141,7 @@ export function GrowthRoadmapPage() {
 
       {!error && !roadmap && (
         <div className="space-y-3">
-          {Array.from({ length: 4 }, (_, i) => (
+          {Array.from({ length: 5 }, (_, i) => (
             <Card key={i} className="space-y-3">
               <div className="flex items-center justify-between">
                 <Skeleton className="h-3.5 w-40" />

@@ -1,5 +1,6 @@
 import {
   assembleGrowthRoadmap,
+  buildCurrentSiteCapacityStage,
   buildRetentionStage,
   buildProfitabilityStage,
   buildCapacityStage,
@@ -7,7 +8,7 @@ import {
   monthBounds,
   type GrowthRoadmap,
 } from '@/modules/insight-engine';
-import { fetchClientInsightLists, fetchStylistProfitabilityByPeriod } from '@/modules/data-ingestion/warehouseReadClient';
+import { fetchClientInsightLists, fetchStylistProfitabilityByPeriod, fetchStylistRoster } from '@/modules/data-ingestion/warehouseReadClient';
 
 /**
  * Real Growth Roadmap (Requirements Section 5.6, Stage 2 of this area's
@@ -50,13 +51,17 @@ export async function buildRealGrowthRoadmap(referenceDate: string, windowMonths
 }> {
   const periods = Array.from({ length: windowMonths }, (_, i) => windowMonths - i).map((monthsAgo) => monthBounds(referenceDate, monthsAgo));
 
-  const [insightLists, profitabilityByPeriod] = await Promise.all([
+  const [insightLists, profitabilityByPeriod, stylistRoster] = await Promise.all([
     fetchClientInsightLists(),
     fetchStylistProfitabilityByPeriod(periods),
+    fetchStylistRoster(),
   ]);
 
   if (!insightLists.ok) return { roadmap: null, unmatchedAppointmentCount: 0, error: insightLists.error ?? 'Failed to load client retention data' };
   if (!profitabilityByPeriod.ok) return { roadmap: null, unmatchedAppointmentCount: 0, error: profitabilityByPeriod.error ?? 'Failed to load stylist profitability data' };
+  if (!stylistRoster.ok) return { roadmap: null, unmatchedAppointmentCount: 0, error: stylistRoster.error ?? 'Failed to load the stylist roster' };
+
+  const activeStylistCount = (stylistRoster.stylists ?? []).filter((s) => s.employmentStatus === 'active').length;
 
   const activeCount = insightLists.activeClientCount ?? 0;
   const atRiskCount = new Set((insightLists.lapseRisk ?? []).map((f) => f.clientId)).size;
@@ -74,6 +79,7 @@ export async function buildRealGrowthRoadmap(referenceDate: string, windowMonths
   );
 
   const stages = [
+    buildCurrentSiteCapacityStage(activeStylistCount),
     buildRetentionStage(activeCount, atRiskCount),
     buildProfitabilityStage(monthlyShares, windowMonths),
     buildCapacityStage(monthlyUtilization, windowMonths),

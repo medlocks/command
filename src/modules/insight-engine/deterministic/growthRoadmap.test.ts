@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildGrowthRoadmap, buildRetentionStage, buildProfitabilityStage, buildCapacityStage } from './growthRoadmap';
+import { buildGrowthRoadmap, buildCurrentSiteCapacityStage, buildRetentionStage, buildProfitabilityStage, buildCapacityStage } from './growthRoadmap';
 import type { Appointment, Client, Stylist } from '@/shared/types/warehouse';
 
 function client(id: string, overrides: Partial<Client> = {}): Client {
@@ -50,7 +50,7 @@ const stylist: Stylist = {
 };
 
 describe('buildGrowthRoadmap', () => {
-  it('always returns exactly the 4 stages from Section 5.6, in order', () => {
+  it('always returns exactly the 5 stages from Section 5.6, in order, current-site capacity first', () => {
     const roadmap = buildGrowthRoadmap({
       appointments: [],
       clients: [],
@@ -58,7 +58,13 @@ describe('buildGrowthRoadmap', () => {
       productCosts: [],
       referenceDate: '2026-06-15',
     });
-    expect(roadmap.stages.map((s) => s.id)).toEqual(['retention', 'profitability', 'capacity', 'systemization']);
+    expect(roadmap.stages.map((s) => s.id)).toEqual([
+      'current-site-capacity',
+      'retention',
+      'profitability',
+      'capacity',
+      'systemization',
+    ]);
   });
 
   it('marks systemization as not-measurable — never a fabricated number', () => {
@@ -162,5 +168,34 @@ describe('nextStep (added 4 Sep 2026 — turns the diagnostic reading into an ac
     const stage = buildCapacityStage([0.8, 0.8, 0.8]);
     expect(stage.status).toBe('achieved');
     expect(stage.nextStep).toMatch(/Hiring Signal/);
+  });
+});
+
+describe('buildCurrentSiteCapacityStage (added 6 Sep 2026 — fill the current salon before a second site)', () => {
+  it('is behind with 2+ empty chairs and points at filling them, not a second site', () => {
+    const stage = buildCurrentSiteCapacityStage(2, 4);
+    expect(stage.status).toBe('behind');
+    expect(stage.metricValue).toBe('2/4');
+    expect(stage.nextStep).toMatch(/Fill the empty chairs/);
+    expect(stage.nextStep).toMatch(/Hiring Signal/);
+  });
+
+  it('is on-track with exactly one empty chair', () => {
+    const stage = buildCurrentSiteCapacityStage(3, 4);
+    expect(stage.status).toBe('on-track');
+    expect(stage.metricValue).toBe('3/4');
+  });
+
+  it('is achieved once every chair is filled, and next step shifts to a second-site question', () => {
+    const stage = buildCurrentSiteCapacityStage(4, 4);
+    expect(stage.status).toBe('achieved');
+    expect(stage.progress).toBe(1);
+    expect(stage.nextStep).toMatch(/second site/);
+  });
+
+  it('never exceeds 100% progress if somehow over capacity', () => {
+    const stage = buildCurrentSiteCapacityStage(5, 4);
+    expect(stage.progress).toBe(1);
+    expect(stage.status).toBe('achieved');
   });
 });
