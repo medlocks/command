@@ -70,6 +70,8 @@ export interface BusinessRiskInputs {
     monthlyOtherFixedCosts: number;
     cashReserves: number;
   } | null;
+  /** Real sum of every committed debt/investment decision's monthly repayment (added 6 Sep 2026, Debt Decision Justifier) — taking on debt automatically raises real burn here, not just in a one-off comment. */
+  committedDebtMonthlyRepayments: number;
 }
 
 /** Stated assumptions (not hidden) — each mirrors an existing threshold already used elsewhere in this app for the same class of "is this a significant move" judgment. */
@@ -163,19 +165,24 @@ const CASH_RUNWAY_NOT_TRACKED_FACTOR: RiskFactor = {
     'The single most direct answer to "when do we need to pull back" — real cash reserves ÷ real monthly burn — isn\'t tracked here yet. Enter your fixed monthly overhead (rent, insurance, loan repayments) and current cash position to make this real. Every other factor here is a proxy; this one is the real number.',
 };
 
-/** Real cash runway, once the owner has entered fixed overhead + reserves — this is the actual answer to "when do we need to pull back," not a proxy like the other four factors. */
-function buildCashRunwayFactor(operatingCashFlow30d: number, overhead: BusinessRiskInputs['overhead']): RiskFactor {
+/** Real cash runway, once the owner has entered fixed overhead + reserves — this is the actual answer to "when do we need to pull back," not a proxy like the other four factors. Any committed debt/investment decision's monthly repayment is folded straight into the real overhead here — taking on debt visibly raises real risk, automatically. */
+function buildCashRunwayFactor(operatingCashFlow30d: number, overhead: BusinessRiskInputs['overhead'], committedDebtMonthlyRepayments: number): RiskFactor {
   if (!overhead) return CASH_RUNWAY_NOT_TRACKED_FACTOR;
 
-  const totalFixedOverhead = overhead.monthlyRent + overhead.monthlyInsurance + overhead.monthlyLoanRepayments + overhead.monthlyOtherFixedCosts;
+  const baseFixedOverhead = overhead.monthlyRent + overhead.monthlyInsurance + overhead.monthlyLoanRepayments + overhead.monthlyOtherFixedCosts;
+  const totalFixedOverhead = baseFixedOverhead + committedDebtMonthlyRepayments;
   const netMonthlyCashFlow = operatingCashFlow30d - totalFixedOverhead;
+  const overheadDetail =
+    committedDebtMonthlyRepayments > 0
+      ? `your real fixed overhead (${gbp(baseFixedOverhead)}/month) plus ${gbp(committedDebtMonthlyRepayments)}/month in committed debt repayments`
+      : `your real fixed overhead (${gbp(totalFixedOverhead)}/month)`;
 
   if (netMonthlyCashFlow >= 0) {
     return {
       id: 'cash-runway',
       label: 'Cash runway',
       status: 'ok',
-      detail: `Cash-flow positive — generating about ${gbp(netMonthlyCashFlow)}/month after real wages, real product cost, and your real fixed overhead (${gbp(totalFixedOverhead)}/month). No runway concern at this rate.`,
+      detail: `Cash-flow positive — generating about ${gbp(netMonthlyCashFlow)}/month after real wages, real product cost, and ${overheadDetail}. No runway concern at this rate.`,
     };
   }
 
@@ -187,13 +194,13 @@ function buildCashRunwayFactor(operatingCashFlow30d: number, overhead: BusinessR
     id: 'cash-runway',
     label: 'Cash runway',
     status,
-    detail: `Burning about ${gbp(burn)}/month after real wages, real product cost, and your real fixed overhead (${gbp(totalFixedOverhead)}/month) — at ${gbp(overhead.cashReserves)} in reserves, that's roughly ${runwayMonths.toFixed(1)} months of runway at the current rate.`,
+    detail: `Burning about ${gbp(burn)}/month after real wages, real product cost, and ${overheadDetail} — at ${gbp(overhead.cashReserves)} in reserves, that's roughly ${runwayMonths.toFixed(1)} months of runway at the current rate.`,
   };
 }
 
 /** Turns already-computed real inputs into a level + concrete next step — pure function, same testable-in-isolation pattern as `buildHiringSignal`/Growth Roadmap's stage builders. */
 export function buildBusinessRisk(input: BusinessRiskInputs): BusinessRisk {
-  const cashRunwayFactor = buildCashRunwayFactor(input.operatingCashFlow30d, input.overhead);
+  const cashRunwayFactor = buildCashRunwayFactor(input.operatingCashFlow30d, input.overhead, input.committedDebtMonthlyRepayments);
   const paceFactor = buildPaceFactor(input.pace);
   const concentrationFactor = buildConcentrationFactor(input.clientConcentration);
   const marginFactor = buildMarginFactor(input.margin);

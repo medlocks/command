@@ -1881,6 +1881,31 @@ async function handleRetailSkuCosts(): Promise<Response> {
 const RISK_PACE_WINDOW_DAYS = 7;
 const RISK_CONCENTRATION_WINDOW_DAYS = 90;
 
+/** Every real logged debt/investment decision, in reverse-chronological order (added 6 Sep 2026). `debtDecision.ts` composes the actual justified/risky/not-justified verdict from these plus the same real financial figures `business_risk_inputs` returns — this handler only ever returns real facts as entered. */
+async function handleDebtDecisionsList(): Promise<Response> {
+  const { data, error } = await supabase
+    .from('business_debt_decisions')
+    .select('id, purpose, amount, funding_type, interest_rate_pct, term_months, monthly_repayment, repayment_plan, status, created_at')
+    .order('created_at', { ascending: false });
+  if (error) return jsonResponse({ ok: false, error: error.message }, 500);
+
+  return jsonResponse({
+    ok: true,
+    decisions: (data ?? []).map((d) => ({
+      id: d.id as string,
+      purpose: d.purpose as string,
+      amount: Number(d.amount),
+      fundingType: d.funding_type as 'debt' | 'personal_money',
+      interestRatePct: d.interest_rate_pct !== null ? Number(d.interest_rate_pct) : null,
+      termMonths: d.term_months as number | null,
+      monthlyRepayment: Number(d.monthly_repayment),
+      repaymentPlan: d.repayment_plan as string,
+      status: d.status as 'proposed' | 'committed' | 'rejected',
+      createdAt: d.created_at as string,
+    })),
+  });
+}
+
 async function handleBusinessRiskInputs(): Promise<Response> {
   const today = new Date().toISOString().slice(0, 10);
   const todayDate = new Date(`${today}T00:00:00Z`);
@@ -1912,6 +1937,7 @@ async function handleBusinessRiskInputs(): Promise<Response> {
     { data: recipeItems, error: recipeError },
     { data: retailBatches, error: retailBatchesError },
     { data: overheadRow, error: overheadError },
+    { data: committedDebtRows, error: committedDebtError },
   ] = await Promise.all([
     supabase
       .from('fresha_appointments')
@@ -1942,13 +1968,15 @@ async function handleBusinessRiskInputs(): Promise<Response> {
     supabase.from('retail_recipe_items').select('sku_id, ingredient_id, quantity_used'),
     supabase.from('retail_production_batches').select('sku_id, quantity_made'),
     supabase.from('business_overhead').select('monthly_rent, monthly_insurance, monthly_loan_repayments, monthly_other_fixed_costs, cash_reserves').maybeSingle(),
+    supabase.from('business_debt_decisions').select('monthly_repayment').eq('status', 'committed'),
   ]);
   for (const e of [
     revenueError, concentrationError, cacError, stylistsError, profApptError, wagesError,
-    hoursError, costsError, patternError, leaveError, ingredientsError, recipeError, retailBatchesError, overheadError,
+    hoursError, costsError, patternError, leaveError, ingredientsError, recipeError, retailBatchesError, overheadError, committedDebtError,
   ]) {
     if (e) return jsonResponse({ ok: false, error: e.message }, 500);
   }
+  const committedDebtMonthlyRepayments = (committedDebtRows ?? []).reduce((sum, d) => sum + Number(d.monthly_repayment), 0);
 
   // Revenue pace — pure sums, unaffected by the row-per-service-line grain
   // (see v_aov_monthly's own comment: SUM survives grouping, only AVG
@@ -2074,6 +2102,7 @@ async function handleBusinessRiskInputs(): Promise<Response> {
     },
     operatingCashFlow30d: Math.round(operatingCashFlow30d * 100) / 100,
     overhead,
+    committedDebtMonthlyRepayments: Math.round(committedDebtMonthlyRepayments * 100) / 100,
   });
 }
 
@@ -2099,7 +2128,8 @@ interface RequestBody {
     | 'service_names_list'
     | 'industry_benchmarks_list'
     | 'retail_sku_costs'
-    | 'business_risk_inputs';
+    | 'business_risk_inputs'
+    | 'debt_decisions_list';
   retailTypeNames?: string[];
   clientName?: string;
   periods?: unknown;
@@ -2170,6 +2200,8 @@ Deno.serve(async (req) => {
       return handleRetailSkuCosts();
     case 'business_risk_inputs':
       return handleBusinessRiskInputs();
+    case 'debt_decisions_list':
+      return handleDebtDecisionsList();
     default:
       return jsonResponse({ ok: false, error: 'Unknown query' }, 400);
   }

@@ -4,6 +4,7 @@ import { HeadlineMetrics } from './components/HeadlineMetrics';
 import { TodoList } from './components/TodoList';
 import { IndicatorPanel } from './components/IndicatorPanel';
 import { RiskMeter } from './components/RiskMeter';
+import { DebtDecisionSection } from './components/DebtDecisionSection';
 import { DraftJobPostButton } from './DraftJobPostButton';
 import { buildRealTodoListCandidates } from './realTodoListInput';
 import { buildRealHeadlineMetrics } from './realHeadlineMetrics';
@@ -47,6 +48,8 @@ export function HomePage() {
   const [hiringWindowWeeks, setHiringWindowWeeks] = useState(6);
   const [businessRisk, setBusinessRisk] = useState<BusinessRisk | null>(null);
   const [businessOverhead, setBusinessOverhead] = useState<BusinessOverhead | null>(null);
+  const [operatingCashFlow30d, setOperatingCashFlow30d] = useState(0);
+  const [committedDebtMonthlyRepayments, setCommittedDebtMonthlyRepayments] = useState(0);
   const [riskError, setRiskError] = useState<string | null>(null);
 
   const referenceDate = new Date().toISOString().slice(0, 10);
@@ -112,6 +115,8 @@ export function HomePage() {
       setRiskError(null);
       setBusinessRisk(result.risk);
       setBusinessOverhead(result.overhead);
+      setOperatingCashFlow30d(result.operatingCashFlow30d);
+      setCommittedDebtMonthlyRepayments(result.committedDebtMonthlyRepayments);
     });
   }
 
@@ -187,6 +192,14 @@ export function HomePage() {
         </Card>
       )}
       {businessRisk && <RiskMeter risk={businessRisk} overhead={businessOverhead} onOverheadSaved={loadBusinessRisk} />}
+      {businessRisk && (
+        <DebtDecisionSection
+          overhead={businessOverhead}
+          operatingCashFlow30d={operatingCashFlow30d}
+          committedDebtMonthlyRepayments={committedDebtMonthlyRepayments}
+          onDecisionsChanged={loadBusinessRisk}
+        />
+      )}
 
       {metricsError && (
         <Card>

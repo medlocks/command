@@ -1082,6 +1082,32 @@ create table public.business_overhead (
   updated_at timestamptz not null default now()
 );
 
+-- Debt/investment decision justifier (added 6 Sep 2026, per direct
+-- request — "the app should justify and rationalise... until we have a
+-- bulletproof plan the app says no, and even then risk meter goes up").
+-- Real, computed verdicts, never a fabricated yes/no: `debtDecision.ts`
+-- checks a proposed monthly repayment against the SAME real operating
+-- cash flow + overhead the Risk Meter already uses. `repayment_plan` is
+-- required free text (how it'll actually be covered) — the app can judge
+-- whether current real numbers already support it, but can't verify a
+-- future plan will materialize, and says so honestly either way. Once a
+-- decision is marked 'committed', its monthly_repayment flows straight
+-- into the Risk Meter's real cash-runway calc — taking on debt visibly
+-- raises real risk, automatically, not just in a one-off comment.
+create table public.business_debt_decisions (
+  id uuid primary key default gen_random_uuid(),
+  purpose text not null,
+  amount numeric(10,2) not null,
+  funding_type text not null, -- 'debt' | 'personal_money'
+  interest_rate_pct numeric(5,2),
+  term_months integer,
+  monthly_repayment numeric(10,2) not null default 0, -- required > 0 for 'debt'; always 0 for 'personal_money' (a one-time injection, not a recurring cost)
+  repayment_plan text not null,
+  status text not null default 'proposed', -- 'proposed' | 'committed' | 'rejected'
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
 -- Real UK cosmetic-product legal requirements before a product can be sold
 -- (added 6 Sep 2026) — sourced from the Office for Product Safety and
 -- Standards' SCPN regime (UK Cosmetic Products Enforcement Regulations
@@ -1108,6 +1134,7 @@ alter table public.retail_compliance_steps enable row level security;
 alter table public.retail_ingredient_price_tiers enable row level security;
 alter table public.retail_production_batches enable row level security;
 alter table public.business_overhead enable row level security;
+alter table public.business_debt_decisions enable row level security;
 
 create policy "owner_manager_retail_ingredients" on public.retail_ingredients
   for all using (public.current_user_role() in ('owner', 'manager', 'admin'));
@@ -1122,6 +1149,8 @@ create policy "owner_manager_retail_ingredient_price_tiers" on public.retail_ing
 create policy "owner_manager_retail_production_batches" on public.retail_production_batches
   for all using (public.current_user_role() in ('owner', 'manager', 'admin'));
 create policy "owner_manager_business_overhead" on public.business_overhead
+  for all using (public.current_user_role() in ('owner', 'manager', 'admin'));
+create policy "owner_manager_business_debt_decisions" on public.business_debt_decisions
   for all using (public.current_user_role() in ('owner', 'manager', 'admin'));
 
 -- =====================================================================

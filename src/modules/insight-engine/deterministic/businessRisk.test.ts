@@ -9,6 +9,7 @@ const healthyInput: BusinessRiskInputs = {
   productLine: { totalCommittedCost: 0, totalUnitsCommitted: 0 },
   operatingCashFlow30d: 8000,
   overhead: null,
+  committedDebtMonthlyRepayments: 0,
 };
 
 describe('buildBusinessRisk', () => {
@@ -91,6 +92,7 @@ describe('buildBusinessRisk', () => {
       productLine: { totalCommittedCost: 0, totalUnitsCommitted: 0 },
       operatingCashFlow30d: 0,
       overhead: null,
+      committedDebtMonthlyRepayments: 0,
     });
     expect(risk.level).toBe('low');
     expect(risk.factors.find((f) => f.id === 'concentration')?.status).toBe('not-measurable');
@@ -133,6 +135,28 @@ describe('cash runway (added 6 Sep 2026 — real once the owner enters fixed ove
       overhead: { monthlyRent: 2000, monthlyInsurance: 200, monthlyLoanRepayments: 500, monthlyOtherFixedCosts: 300, cashReserves: 4500 },
     });
     expect(risk.factors.find((f) => f.id === 'cash-runway')?.status).toBe('watch');
+  });
+
+  it('folds a committed debt decision straight into real overhead, raising the runway risk automatically', () => {
+    // Same overhead as the "ok" case, but now with a £1000/month committed
+    // repayment on top -> total overhead 4000, cash flow 8000-4000=4000, still positive.
+    const stillOk = buildBusinessRisk({
+      ...healthyInput,
+      operatingCashFlow30d: 8000,
+      overhead: { monthlyRent: 2000, monthlyInsurance: 200, monthlyLoanRepayments: 500, monthlyOtherFixedCosts: 300, cashReserves: 10000 },
+      committedDebtMonthlyRepayments: 1000,
+    });
+    expect(stillOk.factors.find((f) => f.id === 'cash-runway')?.status).toBe('ok');
+    expect(stillOk.factors.find((f) => f.id === 'cash-runway')?.detail).toMatch(/committed debt repayments/);
+
+    // A bigger committed repayment tips the same business into real runway risk.
+    const nowRisky = buildBusinessRisk({
+      ...healthyInput,
+      operatingCashFlow30d: 2700,
+      overhead: { monthlyRent: 2000, monthlyInsurance: 200, monthlyLoanRepayments: 500, monthlyOtherFixedCosts: 300, cashReserves: 2000 },
+      committedDebtMonthlyRepayments: 1000,
+    });
+    expect(nowRisky.factors.find((f) => f.id === 'cash-runway')?.status).toBe('risk');
   });
 
   it('cash-runway risk takes priority as the worst factor over the four proxies', () => {

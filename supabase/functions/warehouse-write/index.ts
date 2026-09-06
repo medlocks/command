@@ -1595,6 +1595,79 @@ async function handleBusinessOverheadSet(payload: unknown): Promise<Response> {
   return jsonResponse({ ok: true, rowsWritten: 1 });
 }
 
+const DEBT_DECISION_FUNDING_TYPES = new Set(['debt', 'personal_money']);
+const DEBT_DECISION_STATUSES = new Set(['proposed', 'committed', 'rejected']);
+
+interface DebtDecisionPayload {
+  purpose: string;
+  amount: number;
+  fundingType: 'debt' | 'personal_money';
+  interestRatePct?: number | null;
+  termMonths?: number | null;
+  monthlyRepayment: number;
+  repaymentPlan: string;
+}
+
+/** Logs a proposed debt/personal-money decision (added 6 Sep 2026) — `repaymentPlan` is required free text, since the app can judge the numbers but never fabricate a claim that a future plan will actually happen. `monthlyRepayment` must be 0 for 'personal_money' (a one-time injection, not a recurring cost) and > 0 for 'debt'. */
+async function handleDebtDecisionCommit(payload: unknown): Promise<Response> {
+  const p = payload as Partial<DebtDecisionPayload> | null;
+  if (!p || typeof p.purpose !== 'string' || !p.purpose.trim()) return jsonResponse({ ok: false, error: 'purpose is required' }, 400);
+  if (typeof p.amount !== 'number' || !Number.isFinite(p.amount) || p.amount <= 0) return jsonResponse({ ok: false, error: 'amount must be a positive number' }, 400);
+  if (typeof p.fundingType !== 'string' || !DEBT_DECISION_FUNDING_TYPES.has(p.fundingType)) {
+    return jsonResponse({ ok: false, error: "fundingType must be 'debt' or 'personal_money'" }, 400);
+  }
+  if (typeof p.monthlyRepayment !== 'number' || !Number.isFinite(p.monthlyRepayment) || p.monthlyRepayment < 0) {
+    return jsonResponse({ ok: false, error: 'monthlyRepayment must be a non-negative number' }, 400);
+  }
+  if (p.fundingType === 'debt' && p.monthlyRepayment <= 0) {
+    return jsonResponse({ ok: false, error: 'monthlyRepayment must be a positive real repayment figure for debt' }, 400);
+  }
+  if (p.fundingType === 'personal_money' && p.monthlyRepayment !== 0) {
+    return jsonResponse({ ok: false, error: 'monthlyRepayment must be 0 for personal_money — a one-time injection, not a recurring cost' }, 400);
+  }
+  if (typeof p.repaymentPlan !== 'string' || !p.repaymentPlan.trim()) {
+    return jsonResponse({ ok: false, error: 'repaymentPlan is required — how will this actually be covered?' }, 400);
+  }
+
+  const { data, error } = await supabase
+    .from('business_debt_decisions')
+    .insert({
+      purpose: p.purpose.trim(),
+      amount: p.amount,
+      funding_type: p.fundingType,
+      interest_rate_pct: p.interestRatePct ?? null,
+      term_months: p.termMonths ?? null,
+      monthly_repayment: p.monthlyRepayment,
+      repayment_plan: p.repaymentPlan.trim(),
+    })
+    .select('id')
+    .single();
+  if (error) return jsonResponse({ ok: false, error: error.message }, 500);
+
+  return jsonResponse({ ok: true, rowsWritten: 1, id: data.id });
+}
+
+async function handleDebtDecisionStatusUpdate(payload: unknown): Promise<Response> {
+  const p = payload as { id?: string; status?: string } | null;
+  if (!p || typeof p.id !== 'string' || !p.id) return jsonResponse({ ok: false, error: 'id is required' }, 400);
+  if (typeof p.status !== 'string' || !DEBT_DECISION_STATUSES.has(p.status)) {
+    return jsonResponse({ ok: false, error: "status must be 'proposed', 'committed', or 'rejected'" }, 400);
+  }
+
+  const { error } = await supabase.from('business_debt_decisions').update({ status: p.status, updated_at: new Date().toISOString() }).eq('id', p.id);
+  if (error) return jsonResponse({ ok: false, error: error.message }, 500);
+
+  return jsonResponse({ ok: true, rowsWritten: 1 });
+}
+
+async function handleDebtDecisionRemove(payload: unknown): Promise<Response> {
+  const p = payload as { id?: string } | null;
+  if (!p || typeof p.id !== 'string' || !p.id) return jsonResponse({ ok: false, error: 'id is required' }, 400);
+  const { error } = await supabase.from('business_debt_decisions').delete().eq('id', p.id);
+  if (error) return jsonResponse({ ok: false, error: error.message }, 500);
+  return jsonResponse({ ok: true, rowsWritten: 1 });
+}
+
 // ---------------------------------------------------------------------
 // dispatch
 // ---------------------------------------------------------------------
@@ -1622,8 +1695,9 @@ interface RequestBody {
     | 'retail_recipe_items'
     | 'retail_compliance_steps'
     | 'retail_production_batches'
-    | 'business_overhead';
-  action: 'commit' | 'sync_cycle' | 'update' | 'remove' | 'resolve';
+    | 'business_overhead'
+    | 'business_debt_decisions';
+  action: 'commit' | 'sync_cycle' | 'update' | 'remove' | 'resolve' | 'set_status';
   rows?: unknown;
   payload?: unknown;
 }
@@ -1720,6 +1794,13 @@ Deno.serve(async (req) => {
   if (body.entity === 'business_overhead') {
     if (body.action === 'commit') return handleBusinessOverheadSet(body.payload);
     return jsonResponse({ ok: false, error: 'Unknown action for business_overhead' }, 400);
+  }
+
+  if (body.entity === 'business_debt_decisions') {
+    if (body.action === 'commit') return handleDebtDecisionCommit(body.payload);
+    if (body.action === 'set_status') return handleDebtDecisionStatusUpdate(body.payload);
+    if (body.action === 'remove') return handleDebtDecisionRemove(body.payload);
+    return jsonResponse({ ok: false, error: 'Unknown action for business_debt_decisions' }, 400);
   }
 
   if (body.action !== 'commit') {

@@ -359,6 +359,28 @@ export function setBusinessOverhead(payload: {
   return callFunction({ entity: 'business_overhead', action: 'commit', payload });
 }
 
+/** Logs a proposed debt/personal-money decision (added 6 Sep 2026, Debt Decision Justifier). `repaymentPlan` is required — how it'll actually be covered, in the owner's own words. */
+export function commitDebtDecision(payload: {
+  purpose: string;
+  amount: number;
+  fundingType: 'debt' | 'personal_money';
+  interestRatePct?: number | null;
+  termMonths?: number | null;
+  monthlyRepayment: number;
+  repaymentPlan: string;
+}): Promise<WarehouseWriteResult> {
+  return callFunction({ entity: 'business_debt_decisions', action: 'commit', payload });
+}
+
+/** Marks a logged decision proposed/committed/rejected. Committing one folds its monthly repayment straight into the Business Risk Meter's real cash-runway figure. */
+export function setDebtDecisionStatus(payload: { id: string; status: 'proposed' | 'committed' | 'rejected' }): Promise<WarehouseWriteResult> {
+  return callFunction({ entity: 'business_debt_decisions', action: 'set_status', payload });
+}
+
+export function removeDebtDecision(payload: { id: string }): Promise<WarehouseWriteResult> {
+  return callFunction({ entity: 'business_debt_decisions', action: 'remove', payload });
+}
+
 export function removeRetailProductionBatch(payload: { id: string }): Promise<WarehouseWriteResult> {
   return callFunction({ entity: 'retail_production_batches', action: 'remove', payload });
 }

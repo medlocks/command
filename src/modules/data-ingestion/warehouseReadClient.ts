@@ -581,7 +581,33 @@ export interface BusinessRiskInputsResult {
   operatingCashFlow30d?: number;
   /** Real fixed overhead + cash reserves, null until the owner enters them (added 6 Sep 2026). */
   overhead?: BusinessOverhead | null;
+  /** Real sum of every committed debt/investment decision's monthly repayment (added 6 Sep 2026, Debt Decision Justifier). */
+  committedDebtMonthlyRepayments?: number;
   error?: string;
+}
+
+export interface DebtDecision {
+  id: string;
+  purpose: string;
+  amount: number;
+  fundingType: 'debt' | 'personal_money';
+  interestRatePct: number | null;
+  termMonths: number | null;
+  monthlyRepayment: number;
+  repaymentPlan: string;
+  status: 'proposed' | 'committed' | 'rejected';
+  createdAt: string;
+}
+
+export interface DebtDecisionsListResult {
+  ok: boolean;
+  decisions?: DebtDecision[];
+  error?: string;
+}
+
+/** Every real logged debt/investment decision (added 6 Sep 2026, Debt Decision Justifier). */
+export function fetchDebtDecisionsList(): Promise<DebtDecisionsListResult> {
+  return callFunction({ query: 'debt_decisions_list' });
 }
 
 /** Raw real numbers behind the Home dashboard's Business Risk Meter (added 6 Sep 2026) — `businessRisk.ts` composes the actual verdict from these. */
