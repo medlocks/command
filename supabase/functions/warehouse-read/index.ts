@@ -2101,6 +2101,13 @@ async function handleBusinessRiskInputs(): Promise<Response> {
       totalUnitsCommitted: retailUnitsCommitted,
     },
     operatingCashFlow30d: Math.round(operatingCashFlow30d * 100) / 100,
+    // Real components behind operatingCashFlow30d (added 6 Sep 2026) —
+    // exposed separately for the Financial Health Benchmarks card, which
+    // needs revenue/wage/product cost as individual real figures to
+    // compute each as a % of revenue, not just their net.
+    operatingRevenue30d: Math.round(operatingRevenue30d * 100) / 100,
+    operatingWageCost30d: Math.round(operatingWageCost30d * 100) / 100,
+    operatingProductCost30d: Math.round(operatingProductCost30d * 100) / 100,
     overhead,
     committedDebtMonthlyRepayments: Math.round(committedDebtMonthlyRepayments * 100) / 100,
   });

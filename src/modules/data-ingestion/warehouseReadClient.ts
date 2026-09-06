@@ -579,6 +579,10 @@ export interface BusinessRiskInputsResult {
   productLine?: { totalCommittedCost: number; totalUnitsCommitted: number };
   /** Real trailing-30-day revenue minus real wage cost minus real product cost, across every stylist (added 6 Sep 2026) — combined with `overhead` below to compute a real cash-runway figure. */
   operatingCashFlow30d?: number;
+  /** Real components behind operatingCashFlow30d (added 6 Sep 2026) — used by the Financial Health Benchmarks card to compute each as a % of revenue. */
+  operatingRevenue30d?: number;
+  operatingWageCost30d?: number;
+  operatingProductCost30d?: number;
   /** Real fixed overhead + cash reserves, null until the owner enters them (added 6 Sep 2026). */
   overhead?: BusinessOverhead | null;
   /** Real sum of every committed debt/investment decision's monthly repayment (added 6 Sep 2026, Debt Decision Justifier). */
