@@ -348,6 +348,17 @@ export function commitRetailProductionBatch(payload: { skuId: string; batchNumbe
   return callFunction({ entity: 'retail_production_batches', action: 'commit', payload });
 }
 
+/** Sets real fixed monthly overhead + cash reserves (added 6 Sep 2026) — a singleton row, always upserted. This is what turns the Business Risk Meter's cash-runway disclosure into a real number. */
+export function setBusinessOverhead(payload: {
+  monthlyRent: number;
+  monthlyInsurance: number;
+  monthlyLoanRepayments: number;
+  monthlyOtherFixedCosts: number;
+  cashReserves: number;
+}): Promise<WarehouseWriteResult> {
+  return callFunction({ entity: 'business_overhead', action: 'commit', payload });
+}
+
 export function removeRetailProductionBatch(payload: { id: string }): Promise<WarehouseWriteResult> {
   return callFunction({ entity: 'retail_production_batches', action: 'remove', payload });
 }

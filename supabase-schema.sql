@@ -1064,6 +1064,24 @@ create table public.retail_production_batches (
   unique (sku_id, batch_number)
 );
 
+-- Real fixed monthly overhead + cash reserves (added 6 Sep 2026, per
+-- direct request — "how much risk we carry... if we need to reel in").
+-- Singleton table (always exactly one row, fixed id) — a handful of real
+-- numbers only the owner knows, edited occasionally like a settings page,
+-- not a history to track over time. This is what turns the Business Risk
+-- Meter's "cash runway — not tracked" disclosure into a real number: real
+-- trailing revenue minus real wage/product cost minus this overhead,
+-- divided into these real cash reserves.
+create table public.business_overhead (
+  id uuid primary key default '00000000-0000-0000-0000-000000000001',
+  monthly_rent numeric(10,2) not null default 0,
+  monthly_insurance numeric(10,2) not null default 0,
+  monthly_loan_repayments numeric(10,2) not null default 0,
+  monthly_other_fixed_costs numeric(10,2) not null default 0,
+  cash_reserves numeric(10,2) not null default 0,
+  updated_at timestamptz not null default now()
+);
+
 -- Real UK cosmetic-product legal requirements before a product can be sold
 -- (added 6 Sep 2026) — sourced from the Office for Product Safety and
 -- Standards' SCPN regime (UK Cosmetic Products Enforcement Regulations
@@ -1089,6 +1107,7 @@ alter table public.retail_recipe_items enable row level security;
 alter table public.retail_compliance_steps enable row level security;
 alter table public.retail_ingredient_price_tiers enable row level security;
 alter table public.retail_production_batches enable row level security;
+alter table public.business_overhead enable row level security;
 
 create policy "owner_manager_retail_ingredients" on public.retail_ingredients
   for all using (public.current_user_role() in ('owner', 'manager', 'admin'));
@@ -1101,6 +1120,8 @@ create policy "owner_manager_retail_compliance_steps" on public.retail_complianc
 create policy "owner_manager_retail_ingredient_price_tiers" on public.retail_ingredient_price_tiers
   for all using (public.current_user_role() in ('owner', 'manager', 'admin'));
 create policy "owner_manager_retail_production_batches" on public.retail_production_batches
+  for all using (public.current_user_role() in ('owner', 'manager', 'admin'));
+create policy "owner_manager_business_overhead" on public.business_overhead
   for all using (public.current_user_role() in ('owner', 'manager', 'admin'));
 
 -- =====================================================================

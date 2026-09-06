@@ -7,6 +7,8 @@ const healthyInput: BusinessRiskInputs = {
   margin: { shareAtTarget: 1, stylistCount: 3 },
   cac: { latestMonth: '2026-09-01', latestBlendedCac: 12, priorMonth: '2026-08-01', priorBlendedCac: 12 },
   productLine: { totalCommittedCost: 0, totalUnitsCommitted: 0 },
+  operatingCashFlow30d: 8000,
+  overhead: null,
 };
 
 describe('buildBusinessRisk', () => {
@@ -87,10 +89,60 @@ describe('buildBusinessRisk', () => {
       margin: { shareAtTarget: null, stylistCount: 0 },
       cac: null,
       productLine: { totalCommittedCost: 0, totalUnitsCommitted: 0 },
+      operatingCashFlow30d: 0,
+      overhead: null,
     });
     expect(risk.level).toBe('low');
     expect(risk.factors.find((f) => f.id === 'concentration')?.status).toBe('not-measurable');
     expect(risk.factors.find((f) => f.id === 'margin')?.status).toBe('not-measurable');
     expect(risk.factors.find((f) => f.id === 'cac')?.status).toBe('not-measurable');
+  });
+});
+
+describe('cash runway (added 6 Sep 2026 — real once the owner enters fixed overhead + reserves)', () => {
+  it('reads as ok and cash-flow positive when operating cash flow covers fixed overhead', () => {
+    const risk = buildBusinessRisk({
+      ...healthyInput,
+      operatingCashFlow30d: 8000,
+      overhead: { monthlyRent: 2000, monthlyInsurance: 200, monthlyLoanRepayments: 500, monthlyOtherFixedCosts: 300, cashReserves: 10000 },
+    });
+    const runway = risk.factors.find((f) => f.id === 'cash-runway');
+    expect(runway?.status).toBe('ok');
+    expect(runway?.detail).toMatch(/cash-flow positive/i);
+  });
+
+  it('computes real runway months and flags risk under the 3-month threshold', () => {
+    // Operating cash flow 2000, overhead 3000 -> burning 1000/month; 2000 reserves -> 2 months.
+    const risk = buildBusinessRisk({
+      ...healthyInput,
+      operatingCashFlow30d: 2000,
+      overhead: { monthlyRent: 2000, monthlyInsurance: 200, monthlyLoanRepayments: 500, monthlyOtherFixedCosts: 300, cashReserves: 2000 },
+    });
+    const runway = risk.factors.find((f) => f.id === 'cash-runway');
+    expect(runway?.status).toBe('risk');
+    expect(runway?.detail).toMatch(/2\.0 months/);
+    expect(risk.nextStep).toMatch(/cash runway is the active risk factor/i);
+    expect(risk.nextStep).toMatch(/debt or personal money/i);
+  });
+
+  it('reads as watch between 3 and 6 months of runway', () => {
+    // Burning 1000/month, 4500 reserves -> 4.5 months.
+    const risk = buildBusinessRisk({
+      ...healthyInput,
+      operatingCashFlow30d: 2000,
+      overhead: { monthlyRent: 2000, monthlyInsurance: 200, monthlyLoanRepayments: 500, monthlyOtherFixedCosts: 300, cashReserves: 4500 },
+    });
+    expect(risk.factors.find((f) => f.id === 'cash-runway')?.status).toBe('watch');
+  });
+
+  it('cash-runway risk takes priority as the worst factor over the four proxies', () => {
+    const risk = buildBusinessRisk({
+      ...healthyInput,
+      pace: { trailing7dRevenue: 2000, prior7dRevenue: 3000, monthToDateRevenue: 2000, projectedMonthRevenue: 9000, priorMonthRevenue: 12000 },
+      operatingCashFlow30d: 2000,
+      overhead: { monthlyRent: 2000, monthlyInsurance: 200, monthlyLoanRepayments: 500, monthlyOtherFixedCosts: 300, cashReserves: 1000 },
+    });
+    expect(risk.level).toBe('elevated');
+    expect(risk.nextStep).toMatch(/cash runway is the active risk factor/i);
   });
 });

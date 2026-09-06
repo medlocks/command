@@ -1911,6 +1911,7 @@ async function handleBusinessRiskInputs(): Promise<Response> {
     { data: ingredients, error: ingredientsError },
     { data: recipeItems, error: recipeError },
     { data: retailBatches, error: retailBatchesError },
+    { data: overheadRow, error: overheadError },
   ] = await Promise.all([
     supabase
       .from('fresha_appointments')
@@ -1940,10 +1941,11 @@ async function handleBusinessRiskInputs(): Promise<Response> {
     supabase.from('retail_ingredients').select('id, purchase_price, purchase_quantity'),
     supabase.from('retail_recipe_items').select('sku_id, ingredient_id, quantity_used'),
     supabase.from('retail_production_batches').select('sku_id, quantity_made'),
+    supabase.from('business_overhead').select('monthly_rent, monthly_insurance, monthly_loan_repayments, monthly_other_fixed_costs, cash_reserves').maybeSingle(),
   ]);
   for (const e of [
     revenueError, concentrationError, cacError, stylistsError, profApptError, wagesError,
-    hoursError, costsError, patternError, leaveError, ingredientsError, recipeError, retailBatchesError,
+    hoursError, costsError, patternError, leaveError, ingredientsError, recipeError, retailBatchesError, overheadError,
   ]) {
     if (e) return jsonResponse({ ok: false, error: e.message }, 500);
   }
@@ -2006,6 +2008,27 @@ async function handleBusinessRiskInputs(): Promise<Response> {
   const wagedRows = profRows.filter((r) => !r.isProfitShare);
   const marginShareAtTarget = wagedRows.length > 0 ? wagedRows.filter((r) => !r.isUnderperforming).length / wagedRows.length : null;
 
+  // Real trailing-30-day operating cash flow from salon services — revenue
+  // minus real wage cost minus real product cost, across every stylist
+  // (profit-share included: her real revenue counts, her wageCost is
+  // correctly 0 since she's not paid a fixed wage). Combined with real
+  // fixed overhead below, this is what turns "cash runway" from a
+  // disclosed gap into an actual number once the owner enters it.
+  const operatingRevenue30d = profRows.reduce((sum, r) => sum + r.revenue, 0);
+  const operatingWageCost30d = profRows.reduce((sum, r) => sum + r.wageCost, 0);
+  const operatingProductCost30d = profRows.reduce((sum, r) => sum + r.productCost, 0);
+  const operatingCashFlow30d = operatingRevenue30d - operatingWageCost30d - operatingProductCost30d;
+
+  const overhead = overheadRow
+    ? {
+        monthlyRent: Number(overheadRow.monthly_rent),
+        monthlyInsurance: Number(overheadRow.monthly_insurance),
+        monthlyLoanRepayments: Number(overheadRow.monthly_loan_repayments),
+        monthlyOtherFixedCosts: Number(overheadRow.monthly_other_fixed_costs),
+        cashReserves: Number(overheadRow.cash_reserves),
+      }
+    : null;
+
   // Product-line real committed cost — real ingredient cost × real units
   // actually made (the batch log), summed across every SKU. Confirmed
   // revenue against that spend is always 0 here since no real online
@@ -2049,6 +2072,8 @@ async function handleBusinessRiskInputs(): Promise<Response> {
       totalCommittedCost: Math.round(retailCommittedCost * 100) / 100,
       totalUnitsCommitted: retailUnitsCommitted,
     },
+    operatingCashFlow30d: Math.round(operatingCashFlow30d * 100) / 100,
+    overhead,
   });
 }
 

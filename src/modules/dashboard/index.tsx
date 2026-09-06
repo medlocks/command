@@ -10,6 +10,7 @@ import { buildRealHeadlineMetrics } from './realHeadlineMetrics';
 import { buildRealHiringSignal } from './realHiringSignal';
 import { buildRealBusinessRisk } from './realBusinessRisk';
 import { useRecommendationOverrides } from '@/modules/recommendations/RecommendationOverridesProvider';
+import type { BusinessOverhead } from '@/modules/data-ingestion/warehouseReadClient';
 import type { BusinessRisk, HeadlineMetric, HiringSignal } from '@/modules/insight-engine';
 
 const HIRING_SIGNAL_WINDOW_OPTIONS = [4, 6, 8, 12];
@@ -45,6 +46,7 @@ export function HomePage() {
   const [hiringError, setHiringError] = useState<string | null>(null);
   const [hiringWindowWeeks, setHiringWindowWeeks] = useState(6);
   const [businessRisk, setBusinessRisk] = useState<BusinessRisk | null>(null);
+  const [businessOverhead, setBusinessOverhead] = useState<BusinessOverhead | null>(null);
   const [riskError, setRiskError] = useState<string | null>(null);
 
   const referenceDate = new Date().toISOString().slice(0, 10);
@@ -101,19 +103,20 @@ export function HomePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- referenceDate is stable per Home mount; hiringWindowWeeks is the real dep
   }, [hiringWindowWeeks]);
 
-  useEffect(() => {
-    let cancelled = false;
+  function loadBusinessRisk() {
     buildRealBusinessRisk().then((result) => {
-      if (cancelled) return;
       if (result.error) {
         setRiskError(result.error);
         return;
       }
+      setRiskError(null);
       setBusinessRisk(result.risk);
+      setBusinessOverhead(result.overhead);
     });
-    return () => {
-      cancelled = true;
-    };
+  }
+
+  useEffect(() => {
+    loadBusinessRisk();
   }, []);
 
   const unmatchedAppointmentCount = todoUnmatchedCount + hiringUnmatchedCount;
@@ -183,7 +186,7 @@ export function HomePage() {
           <p className="text-sm text-[var(--color-critical)]">Couldn't load the Business Risk Meter: {riskError}</p>
         </Card>
       )}
-      {businessRisk && <RiskMeter risk={businessRisk} />}
+      {businessRisk && <RiskMeter risk={businessRisk} overhead={businessOverhead} onOverheadSaved={loadBusinessRisk} />}
 
       {metricsError && (
         <Card>

@@ -1556,6 +1556,45 @@ async function handleRetailProductionBatchRemove(payload: unknown): Promise<Resp
   return jsonResponse({ ok: true, rowsWritten: 1 });
 }
 
+const BUSINESS_OVERHEAD_SINGLETON_ID = '00000000-0000-0000-0000-000000000001';
+
+interface BusinessOverheadPayload {
+  monthlyRent: number;
+  monthlyInsurance: number;
+  monthlyLoanRepayments: number;
+  monthlyOtherFixedCosts: number;
+  cashReserves: number;
+}
+
+/** Real fixed overhead + cash reserves (added 6 Sep 2026) — a singleton row (fixed id), always upserted, never inserted twice. Every field must be a real non-negative number; there's no "estimate" flag here since these are meant to be entered from an actual bank statement/lease, not guessed. */
+async function handleBusinessOverheadSet(payload: unknown): Promise<Response> {
+  const p = payload as Partial<BusinessOverheadPayload> | null;
+  if (!p) return jsonResponse({ ok: false, error: 'payload is required' }, 400);
+
+  const fields: (keyof BusinessOverheadPayload)[] = ['monthlyRent', 'monthlyInsurance', 'monthlyLoanRepayments', 'monthlyOtherFixedCosts', 'cashReserves'];
+  for (const f of fields) {
+    if (typeof p[f] !== 'number' || !Number.isFinite(p[f]) || (p[f] as number) < 0) {
+      return jsonResponse({ ok: false, error: `${f} must be a non-negative number` }, 400);
+    }
+  }
+
+  const { error } = await supabase.from('business_overhead').upsert(
+    {
+      id: BUSINESS_OVERHEAD_SINGLETON_ID,
+      monthly_rent: p.monthlyRent,
+      monthly_insurance: p.monthlyInsurance,
+      monthly_loan_repayments: p.monthlyLoanRepayments,
+      monthly_other_fixed_costs: p.monthlyOtherFixedCosts,
+      cash_reserves: p.cashReserves,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: 'id' },
+  );
+  if (error) return jsonResponse({ ok: false, error: error.message }, 500);
+
+  return jsonResponse({ ok: true, rowsWritten: 1 });
+}
+
 // ---------------------------------------------------------------------
 // dispatch
 // ---------------------------------------------------------------------
@@ -1582,7 +1621,8 @@ interface RequestBody {
     | 'retail_skus'
     | 'retail_recipe_items'
     | 'retail_compliance_steps'
-    | 'retail_production_batches';
+    | 'retail_production_batches'
+    | 'business_overhead';
   action: 'commit' | 'sync_cycle' | 'update' | 'remove' | 'resolve';
   rows?: unknown;
   payload?: unknown;
@@ -1675,6 +1715,11 @@ Deno.serve(async (req) => {
     if (body.action === 'commit') return handleRetailProductionBatchCommit(body.payload);
     if (body.action === 'remove') return handleRetailProductionBatchRemove(body.payload);
     return jsonResponse({ ok: false, error: 'Unknown action for retail_production_batches' }, 400);
+  }
+
+  if (body.entity === 'business_overhead') {
+    if (body.action === 'commit') return handleBusinessOverheadSet(body.payload);
+    return jsonResponse({ ok: false, error: 'Unknown action for business_overhead' }, 400);
   }
 
   if (body.action !== 'commit') {

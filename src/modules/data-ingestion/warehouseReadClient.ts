@@ -562,6 +562,14 @@ export function fetchRetailSkuCosts(): Promise<RetailSkuCostsResult> {
   return callFunction({ query: 'retail_sku_costs' });
 }
 
+export interface BusinessOverhead {
+  monthlyRent: number;
+  monthlyInsurance: number;
+  monthlyLoanRepayments: number;
+  monthlyOtherFixedCosts: number;
+  cashReserves: number;
+}
+
 export interface BusinessRiskInputsResult {
   ok: boolean;
   pace?: { trailing7dRevenue: number; prior7dRevenue: number; monthToDateRevenue: number; projectedMonthRevenue: number; priorMonthRevenue: number | null };
@@ -569,6 +577,10 @@ export interface BusinessRiskInputsResult {
   margin?: { shareAtTarget: number | null; stylistCount: number };
   cac?: { latestMonth: string; latestBlendedCac: number; priorMonth: string; priorBlendedCac: number } | null;
   productLine?: { totalCommittedCost: number; totalUnitsCommitted: number };
+  /** Real trailing-30-day revenue minus real wage cost minus real product cost, across every stylist (added 6 Sep 2026) — combined with `overhead` below to compute a real cash-runway figure. */
+  operatingCashFlow30d?: number;
+  /** Real fixed overhead + cash reserves, null until the owner enters them (added 6 Sep 2026). */
+  overhead?: BusinessOverhead | null;
   error?: string;
 }
 
