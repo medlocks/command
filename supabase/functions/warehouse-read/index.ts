@@ -1921,6 +1921,12 @@ async function handleBusinessRiskInputs(): Promise<Response> {
   const priorMonthEnd = new Date(Date.UTC(todayDate.getUTCFullYear(), todayDate.getUTCMonth(), 0)).toISOString().slice(0, 10);
   const concentrationStart = addDays(today, -RISK_CONCENTRATION_WINDOW_DAYS);
   const profPeriodStart = addDays(today, -(PROFITABILITY_PERIOD_DAYS - 1));
+  // Prior 30-day window (added 6 Sep 2026, valuation-trend) — the same
+  // real profitability computation, shifted back 30 days, so the goal
+  // tracker can show whether estimated value is actually moving, not just
+  // a static snapshot.
+  const priorProfPeriodEnd = addDays(today, -PROFITABILITY_PERIOD_DAYS);
+  const priorProfPeriodStart = addDays(today, -(2 * PROFITABILITY_PERIOD_DAYS - 1));
 
   const [
     { data: revenueRows, error: revenueError },
@@ -1928,6 +1934,7 @@ async function handleBusinessRiskInputs(): Promise<Response> {
     { data: cacRows, error: cacError },
     { data: stylists, error: stylistsError },
     { data: profAppointments, error: profApptError },
+    { data: priorProfAppointments, error: priorProfApptError },
     { data: wages, error: wagesError },
     { data: hoursHistory, error: hoursError },
     { data: productCosts, error: costsError },
@@ -1960,6 +1967,12 @@ async function handleBusinessRiskInputs(): Promise<Response> {
       .in('status', REAL_WORK_STATUSES)
       .gte('scheduled_date', profPeriodStart)
       .lte('scheduled_date', today),
+    supabase
+      .from('fresha_appointments')
+      .select('team_member_name, client_name, net_sales, duration_minutes, scheduled_date')
+      .in('status', REAL_WORK_STATUSES)
+      .gte('scheduled_date', priorProfPeriodStart)
+      .lte('scheduled_date', priorProfPeriodEnd),
     supabase.from('stylist_wages').select('stylist_id, hourly_rate, effective_from, effective_to'),
     supabase.from('stylist_hours').select('stylist_id, hours_per_week, effective_from, effective_to'),
     supabase.from('product_costs').select('period_start, period_end, amount'),
@@ -1973,7 +1986,7 @@ async function handleBusinessRiskInputs(): Promise<Response> {
     supabase.from('business_goal').select('target_valuation, target_date, valuation_multiple_low, valuation_multiple_high').maybeSingle(),
   ]);
   for (const e of [
-    revenueError, concentrationError, cacError, stylistsError, profApptError, wagesError,
+    revenueError, concentrationError, cacError, stylistsError, profApptError, priorProfApptError, wagesError,
     hoursError, costsError, patternError, leaveError, ingredientsError, recipeError, retailBatchesError, overheadError, committedDebtError, goalError,
   ]) {
     if (e) return jsonResponse({ ok: false, error: e.message }, 500);
@@ -2057,6 +2070,26 @@ async function handleBusinessRiskInputs(): Promise<Response> {
   const operatingProductCost30d = profRows.reduce((sum, r) => sum + r.productCost, 0);
   const operatingCashFlow30d = operatingRevenue30d - operatingWageCost30d - operatingProductCost30d;
 
+  // Prior 30-day window, same computation shifted back 30 days (added 6
+  // Sep 2026) — lets the valuation goal tracker show a real trend instead
+  // of a static snapshot. Reuses the CURRENT active stylist list for the
+  // prior period too (same simplification `stylist_profitability_by_period`
+  // already makes) — a real team change would be a minor edge case, not
+  // the common case.
+  const priorProfRows = computeStylistProfitabilityRows(
+    stylistList,
+    priorProfAppointments ?? [],
+    wages ?? [],
+    hoursHistory ?? [],
+    productCosts ?? [],
+    priorProfPeriodStart,
+    priorProfPeriodEnd,
+    workingPattern ?? [],
+    leave ?? [],
+  );
+  const priorOperatingCashFlow30d =
+    priorProfRows.reduce((sum, r) => sum + r.revenue, 0) - priorProfRows.reduce((sum, r) => sum + r.wageCost, 0) - priorProfRows.reduce((sum, r) => sum + r.productCost, 0);
+
   const overhead = overheadRow
     ? {
         monthlyRent: Number(overheadRow.monthly_rent),
@@ -2111,6 +2144,7 @@ async function handleBusinessRiskInputs(): Promise<Response> {
       totalUnitsCommitted: retailUnitsCommitted,
     },
     operatingCashFlow30d: Math.round(operatingCashFlow30d * 100) / 100,
+    priorOperatingCashFlow30d: Math.round(priorOperatingCashFlow30d * 100) / 100,
     // Real components behind operatingCashFlow30d (added 6 Sep 2026) —
     // exposed separately for the Financial Health Benchmarks card, which
     // needs revenue/wage/product cost as individual real figures to

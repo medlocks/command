@@ -27,6 +27,14 @@
  * The "required growth rate" tiering (organic/aggressive/structural) is
  * this app's own judgment call, not a sourced external benchmark — stated
  * plainly as such, same as any other business-logic threshold here.
+ *
+ * Deliberately does NOT compute a single "% chance of success" combining
+ * this with Hiring Signal/Pricing/Stock/etc — considered and explicitly
+ * rejected 6 Sep 2026: there's no real data to calibrate how much any one
+ * lever moves the final number, so a composite score would just be
+ * confident-looking guesswork. `progressPct` and `monthlyTrendPct` below
+ * are the honest alternative: real re-presentations of numbers already
+ * computed, not a fabricated probability.
  */
 
 export type ValuationGoalStatus = 'on-track' | 'aggressive' | 'not-realistic-organically' | 'not-measurable';
@@ -40,6 +48,12 @@ export interface ValuationGoal {
   yearsRemaining: number;
   requiredAnnualProfit: number;
   requiredCagr: number | null;
+  /** Real progress toward the target, as (current valuation midpoint) / targetValuation — a plain re-presentation of numbers already computed, never a fabricated "% chance of success" (added 6 Sep 2026, explicitly not built after weighing it — see the module doc comment). */
+  progressPct: number | null;
+  /** Real month-over-month change in the valuation-midpoint estimate, from the prior real 30-day operating profit — null without enough history. A single month is noisy; shown as a trend to watch, not a verdict. */
+  monthlyTrendPct: number | null;
+  /** If the trend is genuinely positive, how many years to reach the target at that real observed rate (distinct from `requiredCagr`, which is what's NEEDED, not what's actually happening) — null if the trend is flat/negative or unmeasurable. */
+  impliedYearsAtCurrentTrend: number | null;
   status: ValuationGoalStatus;
   narrative: string;
   nextStep: string;
@@ -48,6 +62,8 @@ export interface ValuationGoal {
 export interface ValuationGoalInputs {
   /** Real trailing-30-day revenue minus real wage cost minus real product cost — before rent/insurance/other overhead and before debt service. */
   operatingCashFlow30d: number;
+  /** Same real computation for the PRIOR 30-day window (added 6 Sep 2026) — null without enough history. Powers the real trend, never a fabricated one. */
+  priorOperatingCashFlow30d: number | null;
   /** Real rent/insurance/other fixed overhead — deliberately excludes loan repayments (debt service isn't part of SDE/EBITDA-style profit). Null until the owner enters real overhead figures. */
   overhead: { monthlyRent: number; monthlyInsurance: number; monthlyOtherFixedCosts: number } | null;
   referenceDate: string;
@@ -86,15 +102,46 @@ export function buildValuationGoal(input: ValuationGoalInputs): ValuationGoal {
   else if (requiredCagr <= NOT_REALISTIC_ORGANICALLY_CAGR) status = 'aggressive';
   else status = 'not-realistic-organically';
 
+  const currentValuationMidpoint = (currentValuationLow + currentValuationHigh) / 2;
+  const progressPct = annualOperatingProfit > 0 ? currentValuationMidpoint / input.targetValuation : null;
+
+  // Real trend — same overhead figure applied to both periods (overhead
+  // isn't tracked historically), so this isolates the real revenue/wage/
+  // product-cost movement, not an overhead change. A single month is
+  // genuinely noisy (real weekly revenue has swung 30%+ this session) —
+  // shown as a trend to watch over several months, not a verdict.
+  let monthlyTrendPct: number | null = null;
+  let impliedYearsAtCurrentTrend: number | null = null;
+  if (input.priorOperatingCashFlow30d !== null) {
+    const priorAnnualOperatingProfit = (input.priorOperatingCashFlow30d - monthlyFixedOverheadExcludingDebt) * 12;
+    const priorValuationMidpoint = (priorAnnualOperatingProfit * input.multipleLow + priorAnnualOperatingProfit * input.multipleHigh) / 2;
+    if (priorValuationMidpoint > 0) {
+      monthlyTrendPct = (currentValuationMidpoint - priorValuationMidpoint) / priorValuationMidpoint;
+      if (monthlyTrendPct > 0 && currentValuationMidpoint > 0 && input.targetValuation > currentValuationMidpoint) {
+        impliedYearsAtCurrentTrend = Math.log(input.targetValuation / currentValuationMidpoint) / (12 * Math.log(1 + monthlyTrendPct));
+      }
+    }
+  }
+
   const gbp = (value: number) => `£${Math.round(value).toLocaleString('en-GB')}`;
   const pct = (value: number) => `${Math.round(value * 100)}%`;
 
   const overheadCaveat = input.overhead === null ? ' (rent/insurance/other overhead not entered yet, so this is a pre-overhead figure — likely overstated; enter them on the Risk Meter for a real one.)' : '';
+  const trendSentence =
+    monthlyTrendPct === null
+      ? ''
+      : ` Estimated value moved ${monthlyTrendPct >= 0 ? 'up' : 'down'} ${pct(Math.abs(monthlyTrendPct))} vs the prior 30 days — one month is noisy, worth watching over a few before reading much into it.${
+          impliedYearsAtCurrentTrend !== null
+            ? ` At that real rate sustained, you'd reach the target in about ${impliedYearsAtCurrentTrend.toFixed(1)} years (vs ${yearsRemaining.toFixed(1)} left).`
+            : monthlyTrendPct <= 0
+              ? ` At that rate, you wouldn't reach the target at all without a real change.`
+              : ''
+        }`;
 
   const narrative =
     status === 'not-measurable'
       ? `Not enough real trailing profit yet to estimate a current valuation or a required growth rate.`
-      : `At a real ${gbp(annualOperatingProfit)}/year operating profit (annualized from the last 30 days)${overheadCaveat}, current estimated value is roughly ${gbp(currentValuationLow)}–${gbp(currentValuationHigh)}, using the ${input.multipleLow}x–${input.multipleHigh}x salon-earnings-multiple range this is based on. Reaching ${gbp(input.targetValuation)} by ${input.targetDate.slice(0, 4)} at the same ${midpointMultiple}x multiple needs annual profit to reach about ${gbp(requiredAnnualProfit)} — a sustained ${pct(requiredCagr ?? 0)}/year growth rate over the ${yearsRemaining.toFixed(1)} years left.`;
+      : `At a real ${gbp(annualOperatingProfit)}/year operating profit (annualized from the last 30 days)${overheadCaveat}, current estimated value is roughly ${gbp(currentValuationLow)}–${gbp(currentValuationHigh)} (${progressPct !== null ? pct(progressPct) : '—'} of the way to target), using the ${input.multipleLow}x–${input.multipleHigh}x salon-earnings-multiple range this is based on. Reaching ${gbp(input.targetValuation)} by ${input.targetDate.slice(0, 4)} at the same ${midpointMultiple}x multiple needs annual profit to reach about ${gbp(requiredAnnualProfit)} — a sustained ${pct(requiredCagr ?? 0)}/year growth rate over the ${yearsRemaining.toFixed(1)} years left.${trendSentence}`;
 
   const nextStep =
     status === 'on-track'
@@ -114,6 +161,9 @@ export function buildValuationGoal(input: ValuationGoalInputs): ValuationGoal {
     yearsRemaining,
     requiredAnnualProfit,
     requiredCagr,
+    progressPct,
+    monthlyTrendPct,
+    impliedYearsAtCurrentTrend,
     status,
     narrative,
     nextStep,

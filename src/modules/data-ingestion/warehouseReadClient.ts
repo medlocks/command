@@ -579,6 +579,8 @@ export interface BusinessRiskInputsResult {
   productLine?: { totalCommittedCost: number; totalUnitsCommitted: number };
   /** Real trailing-30-day revenue minus real wage cost minus real product cost, across every stylist (added 6 Sep 2026) — combined with `overhead` below to compute a real cash-runway figure. */
   operatingCashFlow30d?: number;
+  /** Same real computation for the PRIOR 30-day window (added 6 Sep 2026) — powers the valuation goal's real trend, never a fabricated one. */
+  priorOperatingCashFlow30d?: number;
   /** Real components behind operatingCashFlow30d (added 6 Sep 2026) — used by the Financial Health Benchmarks card to compute each as a % of revenue. */
   operatingRevenue30d?: number;
   operatingWageCost30d?: number;

@@ -117,6 +117,18 @@ export function ValuationGoalCard({
         </span>
       </div>
 
+      {goal.progressPct !== null && (
+        <div className="mt-3">
+          <div className="h-2.5 w-full rounded-full bg-[var(--color-grid)]">
+            <div
+              className="h-2.5 rounded-full transition-[width]"
+              style={{ width: `${Math.min(goal.progressPct * 100, 100)}%`, backgroundColor: meta.color }}
+            />
+          </div>
+          <p className="mt-1 text-xs text-[var(--color-ink-muted)]">{Math.round(goal.progressPct * 100)}% of the way to target, by current estimated value</p>
+        </div>
+      )}
+
       <div className="mt-3 grid grid-cols-2 gap-3">
         <div>
           <p className="text-[11px] font-medium tracking-wide text-[var(--color-ink-muted)] uppercase">Current estimated value</p>
@@ -128,6 +140,21 @@ export function ValuationGoalCard({
           <p className="text-[11px] font-medium tracking-wide text-[var(--color-ink-muted)] uppercase">Growth needed to get there</p>
           <p className="text-lg font-semibold tabular-nums text-[var(--color-ink)]">
             {goal.requiredCagr !== null ? `${Math.round(goal.requiredCagr * 100)}%/yr` : '—'}
+          </p>
+        </div>
+        <div>
+          <p className="text-[11px] font-medium tracking-wide text-[var(--color-ink-muted)] uppercase">Trend vs prior 30 days</p>
+          <p
+            className="text-lg font-semibold tabular-nums"
+            style={{ color: goal.monthlyTrendPct === null ? 'var(--color-ink)' : goal.monthlyTrendPct >= 0 ? 'var(--color-good)' : 'var(--color-critical)' }}
+          >
+            {goal.monthlyTrendPct !== null ? `${goal.monthlyTrendPct >= 0 ? '+' : ''}${Math.round(goal.monthlyTrendPct * 100)}%` : '—'}
+          </p>
+        </div>
+        <div>
+          <p className="text-[11px] font-medium tracking-wide text-[var(--color-ink-muted)] uppercase">At that real rate</p>
+          <p className="text-lg font-semibold tabular-nums text-[var(--color-ink)]">
+            {goal.impliedYearsAtCurrentTrend !== null ? `${goal.impliedYearsAtCurrentTrend.toFixed(1)} yrs` : '—'}
           </p>
         </div>
       </div>

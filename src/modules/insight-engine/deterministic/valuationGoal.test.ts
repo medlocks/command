@@ -3,6 +3,7 @@ import { buildValuationGoal, type ValuationGoalInputs } from './valuationGoal';
 
 const baseInput: ValuationGoalInputs = {
   operatingCashFlow30d: 8000, // £96,000/year pre-overhead
+  priorOperatingCashFlow30d: null,
   overhead: null,
   referenceDate: '2026-09-06',
   targetValuation: 1000000,
@@ -76,5 +77,39 @@ describe('buildValuationGoal', () => {
   it('flags the current-value estimate as likely overstated when overhead has not been entered yet', () => {
     const result = buildValuationGoal(baseInput);
     expect(result.narrative).toMatch(/not entered yet.*overstated/);
+  });
+
+  it('computes real progress % as current valuation midpoint over target, never a fabricated success score', () => {
+    const result = buildValuationGoal(baseInput);
+    // midpoint = (144,000 + 240,000) / 2 = 192,000 -> 19.2% of 1,000,000
+    const expectedMidpoint = (result.currentValuationLow + result.currentValuationHigh) / 2;
+    expect(result.progressPct).toBeCloseTo(expectedMidpoint / 1000000, 5);
+  });
+
+  it('is null progress with zero real profit, never a fabricated percentage', () => {
+    const result = buildValuationGoal({ ...baseInput, operatingCashFlow30d: 0 });
+    expect(result.progressPct).toBeNull();
+  });
+
+  it('computes a real monthly trend from the prior 30-day window', () => {
+    // Prior 6000/month -> 72,000/year; current 8000/month -> 96,000/year. Same overhead (none) on both sides.
+    const result = buildValuationGoal({ ...baseInput, priorOperatingCashFlow30d: 6000 });
+    expect(result.monthlyTrendPct).toBeCloseTo((96000 - 72000) / 72000, 5);
+    expect(result.impliedYearsAtCurrentTrend).not.toBeNull();
+    expect(result.narrative).toMatch(/moved up/);
+  });
+
+  it('reports a declining trend honestly, with no implied-years figure to avoid a nonsense projection', () => {
+    const result = buildValuationGoal({ ...baseInput, priorOperatingCashFlow30d: 12000 });
+    expect(result.monthlyTrendPct).toBeLessThan(0);
+    expect(result.impliedYearsAtCurrentTrend).toBeNull();
+    expect(result.narrative).toMatch(/moved down/);
+    expect(result.narrative).toMatch(/wouldn't reach the target/);
+  });
+
+  it('has no trend at all without real prior-period history', () => {
+    const result = buildValuationGoal(baseInput);
+    expect(result.monthlyTrendPct).toBeNull();
+    expect(result.impliedYearsAtCurrentTrend).toBeNull();
   });
 });

@@ -63,6 +63,7 @@ export async function buildRealBusinessRisk(): Promise<RealBusinessRiskResult> {
   const goal = goalSettings
     ? buildValuationGoal({
         operatingCashFlow30d: result.operatingCashFlow30d,
+        priorOperatingCashFlow30d: result.priorOperatingCashFlow30d ?? null,
         overhead: overhead ? { monthlyRent: overhead.monthlyRent, monthlyInsurance: overhead.monthlyInsurance, monthlyOtherFixedCosts: overhead.monthlyOtherFixedCosts } : null,
         referenceDate: new Date().toISOString().slice(0, 10),
         targetValuation: goalSettings.targetValuation,
