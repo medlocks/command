@@ -20,6 +20,7 @@ export * from './hiringSignal';
 export * from './stockInsights';
 export * from './stockForecast';
 export * from './retailConversion';
+export * from './businessRisk';
 
 // TODO(Section 5.10 — SEO & Local Search Insights): three pieces of the
 // spec are deliberately NOT implemented yet, deferred by explicit scope

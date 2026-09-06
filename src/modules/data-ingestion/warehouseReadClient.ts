@@ -561,3 +561,18 @@ export interface RetailSkuCostsResult {
 export function fetchRetailSkuCosts(): Promise<RetailSkuCostsResult> {
   return callFunction({ query: 'retail_sku_costs' });
 }
+
+export interface BusinessRiskInputsResult {
+  ok: boolean;
+  pace?: { trailing7dRevenue: number; prior7dRevenue: number; monthToDateRevenue: number; projectedMonthRevenue: number; priorMonthRevenue: number | null };
+  clientConcentration?: { topClientSharePct: number | null; totalRevenue90d: number };
+  margin?: { shareAtTarget: number | null; stylistCount: number };
+  cac?: { latestMonth: string; latestBlendedCac: number; priorMonth: string; priorBlendedCac: number } | null;
+  productLine?: { totalCommittedCost: number; totalUnitsCommitted: number };
+  error?: string;
+}
+
+/** Raw real numbers behind the Home dashboard's Business Risk Meter (added 6 Sep 2026) — `businessRisk.ts` composes the actual verdict from these. */
+export function fetchBusinessRiskInputs(): Promise<BusinessRiskInputsResult> {
+  return callFunction({ query: 'business_risk_inputs' });
+}

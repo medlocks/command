@@ -3,12 +3,14 @@ import { Card, SkeletonStatRow } from '@/shared';
 import { HeadlineMetrics } from './components/HeadlineMetrics';
 import { TodoList } from './components/TodoList';
 import { IndicatorPanel } from './components/IndicatorPanel';
+import { RiskMeter } from './components/RiskMeter';
 import { DraftJobPostButton } from './DraftJobPostButton';
 import { buildRealTodoListCandidates } from './realTodoListInput';
 import { buildRealHeadlineMetrics } from './realHeadlineMetrics';
 import { buildRealHiringSignal } from './realHiringSignal';
+import { buildRealBusinessRisk } from './realBusinessRisk';
 import { useRecommendationOverrides } from '@/modules/recommendations/RecommendationOverridesProvider';
-import type { HeadlineMetric, HiringSignal } from '@/modules/insight-engine';
+import type { BusinessRisk, HeadlineMetric, HiringSignal } from '@/modules/insight-engine';
 
 const HIRING_SIGNAL_WINDOW_OPTIONS = [4, 6, 8, 12];
 const SELECT_CLASSES =
@@ -42,6 +44,8 @@ export function HomePage() {
   const [hiringUnmatchedCount, setHiringUnmatchedCount] = useState(0);
   const [hiringError, setHiringError] = useState<string | null>(null);
   const [hiringWindowWeeks, setHiringWindowWeeks] = useState(6);
+  const [businessRisk, setBusinessRisk] = useState<BusinessRisk | null>(null);
+  const [riskError, setRiskError] = useState<string | null>(null);
 
   const referenceDate = new Date().toISOString().slice(0, 10);
   const dateLabel = new Date(referenceDate).toLocaleDateString('en-GB', {
@@ -96,6 +100,21 @@ export function HomePage() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- referenceDate is stable per Home mount; hiringWindowWeeks is the real dep
   }, [hiringWindowWeeks]);
+
+  useEffect(() => {
+    let cancelled = false;
+    buildRealBusinessRisk().then((result) => {
+      if (cancelled) return;
+      if (result.error) {
+        setRiskError(result.error);
+        return;
+      }
+      setBusinessRisk(result.risk);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const unmatchedAppointmentCount = todoUnmatchedCount + hiringUnmatchedCount;
 
@@ -158,6 +177,13 @@ export function HomePage() {
           )}
         </div>
       )}
+
+      {riskError && (
+        <Card>
+          <p className="text-sm text-[var(--color-critical)]">Couldn't load the Business Risk Meter: {riskError}</p>
+        </Card>
+      )}
+      {businessRisk && <RiskMeter risk={businessRisk} />}
 
       {metricsError && (
         <Card>

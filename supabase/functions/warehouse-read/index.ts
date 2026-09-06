@@ -1865,6 +1865,193 @@ async function handleRetailSkuCosts(): Promise<Response> {
   });
 }
 
+// ---------------------------------------------------------------------
+// business_risk_inputs (added 6 Sep 2026) — raw real numbers behind the
+// Home dashboard's Business Risk Meter. This handler only ever returns
+// unopinionated real facts; `src/modules/insight-engine/deterministic/
+// businessRisk.ts` composes the actual thresholds/verdict/next-step from
+// them, same server-computes-facts/client-composes-verdict split as
+// Hiring Signal and Growth Roadmap. Deliberately does NOT compute a real
+// cash-runway figure — that needs the owner's own fixed monthly overhead
+// and current cash reserves, neither of which exist anywhere in this
+// schema; the frontend shows that gap honestly rather than this handler
+// fabricating a number for it.
+// ---------------------------------------------------------------------
+
+const RISK_PACE_WINDOW_DAYS = 7;
+const RISK_CONCENTRATION_WINDOW_DAYS = 90;
+
+async function handleBusinessRiskInputs(): Promise<Response> {
+  const today = new Date().toISOString().slice(0, 10);
+  const todayDate = new Date(`${today}T00:00:00Z`);
+
+  const trailingStart = addDays(today, -(RISK_PACE_WINDOW_DAYS - 1));
+  const priorStart = addDays(today, -(2 * RISK_PACE_WINDOW_DAYS - 1));
+  const priorEnd = addDays(today, -RISK_PACE_WINDOW_DAYS);
+  const monthStart = `${today.slice(0, 7)}-01`;
+  const daysElapsedInMonth = todayDate.getUTCDate();
+  const daysInMonth = new Date(Date.UTC(todayDate.getUTCFullYear(), todayDate.getUTCMonth() + 1, 0)).getUTCDate();
+  const priorMonthDate = new Date(Date.UTC(todayDate.getUTCFullYear(), todayDate.getUTCMonth() - 1, 1));
+  const priorMonthStart = priorMonthDate.toISOString().slice(0, 10);
+  const priorMonthEnd = new Date(Date.UTC(todayDate.getUTCFullYear(), todayDate.getUTCMonth(), 0)).toISOString().slice(0, 10);
+  const concentrationStart = addDays(today, -RISK_CONCENTRATION_WINDOW_DAYS);
+  const profPeriodStart = addDays(today, -(PROFITABILITY_PERIOD_DAYS - 1));
+
+  const [
+    { data: revenueRows, error: revenueError },
+    { data: concentrationRows, error: concentrationError },
+    { data: cacRows, error: cacError },
+    { data: stylists, error: stylistsError },
+    { data: profAppointments, error: profApptError },
+    { data: wages, error: wagesError },
+    { data: hoursHistory, error: hoursError },
+    { data: productCosts, error: costsError },
+    { data: workingPattern, error: patternError },
+    { data: leave, error: leaveError },
+    { data: ingredients, error: ingredientsError },
+    { data: recipeItems, error: recipeError },
+    { data: retailBatches, error: retailBatchesError },
+  ] = await Promise.all([
+    supabase
+      .from('fresha_appointments')
+      .select('client_name, scheduled_date, net_sales')
+      .in('status', REAL_WORK_STATUSES)
+      .gte('scheduled_date', priorMonthStart)
+      .lte('scheduled_date', today),
+    supabase
+      .from('fresha_appointments')
+      .select('client_name, net_sales')
+      .in('status', REAL_WORK_STATUSES)
+      .gte('scheduled_date', concentrationStart)
+      .lte('scheduled_date', today),
+    supabase.from('v_blended_cac_monthly').select('month, blended_cac').order('month', { ascending: false }).limit(2),
+    supabase.from('stylists').select('id, name, is_profit_share').eq('employment_status', 'active'),
+    supabase
+      .from('fresha_appointments')
+      .select('team_member_name, client_name, net_sales, duration_minutes, scheduled_date')
+      .in('status', REAL_WORK_STATUSES)
+      .gte('scheduled_date', profPeriodStart)
+      .lte('scheduled_date', today),
+    supabase.from('stylist_wages').select('stylist_id, hourly_rate, effective_from, effective_to'),
+    supabase.from('stylist_hours').select('stylist_id, hours_per_week, effective_from, effective_to'),
+    supabase.from('product_costs').select('period_start, period_end, amount'),
+    supabase.from('stylist_working_pattern').select('stylist_id, day_of_week, hours, effective_from, effective_to'),
+    supabase.from('stylist_leave').select('stylist_id, date_start, date_end'),
+    supabase.from('retail_ingredients').select('id, purchase_price, purchase_quantity'),
+    supabase.from('retail_recipe_items').select('sku_id, ingredient_id, quantity_used'),
+    supabase.from('retail_production_batches').select('sku_id, quantity_made'),
+  ]);
+  for (const e of [
+    revenueError, concentrationError, cacError, stylistsError, profApptError, wagesError,
+    hoursError, costsError, patternError, leaveError, ingredientsError, recipeError, retailBatchesError,
+  ]) {
+    if (e) return jsonResponse({ ok: false, error: e.message }, 500);
+  }
+
+  // Revenue pace — pure sums, unaffected by the row-per-service-line grain
+  // (see v_aov_monthly's own comment: SUM survives grouping, only AVG
+  // doesn't).
+  const revenueClean = (revenueRows ?? []).filter((r) => !r.client_name || !INTERNAL_BLOCK_CLIENT_NAMES.has(r.client_name));
+  const sumInRange = (start: string, end: string) =>
+    revenueClean.filter((r) => r.scheduled_date && r.scheduled_date >= start && r.scheduled_date <= end).reduce((sum, r) => sum + Number(r.net_sales), 0);
+  const trailing7dRevenue = sumInRange(trailingStart, today);
+  const prior7dRevenue = sumInRange(priorStart, priorEnd);
+  const monthToDateRevenue = sumInRange(monthStart, today);
+  const projectedMonthRevenue = daysElapsedInMonth > 0 ? (monthToDateRevenue / daysElapsedInMonth) * daysInMonth : 0;
+  const priorMonthRevenue = sumInRange(priorMonthStart, priorMonthEnd);
+
+  // Client concentration — real trailing 90-day revenue share of the
+  // single highest-spending client. Grouped by client_name directly
+  // (same practical key used throughout this file) rather than resolving
+  // to clients.id — an unmatched/duplicate name would only ever understate
+  // concentration (splitting one real client across two buckets), never
+  // fabricate a risk that isn't there.
+  const concentrationClean = (concentrationRows ?? []).filter((r) => !r.client_name || !INTERNAL_BLOCK_CLIENT_NAMES.has(r.client_name));
+  const revenueByClient = new Map<string, number>();
+  for (const r of concentrationClean) {
+    if (!r.client_name) continue;
+    revenueByClient.set(r.client_name, (revenueByClient.get(r.client_name) ?? 0) + Number(r.net_sales));
+  }
+  const totalRevenue90d = Array.from(revenueByClient.values()).reduce((sum, v) => sum + v, 0);
+  const topClientRevenue90d = revenueByClient.size > 0 ? Math.max(...revenueByClient.values()) : 0;
+
+  // CAC trend — same latest-2-months read as the daily digest's own CAC signal.
+  const [latestCac, priorCac] = cacRows ?? [];
+  const cac =
+    latestCac && priorCac && latestCac.blended_cac !== null && priorCac.blended_cac !== null && Number(priorCac.blended_cac) > 0
+      ? {
+          latestMonth: latestCac.month as string,
+          latestBlendedCac: Number(latestCac.blended_cac),
+          priorMonth: priorCac.month as string,
+          priorBlendedCac: Number(priorCac.blended_cac),
+        }
+      : null;
+
+  // Margin health — trailing 30 days, reusing the exact same shared
+  // computation Team/Growth Roadmap use, excluding profit-share stylists
+  // from the target-margin share (her wageCost is correctly 0, not a real
+  // "beating target" result).
+  const stylistList: StylistLite[] = (stylists ?? []).map((s) => ({ id: s.id, name: s.name, isProfitShare: s.is_profit_share }));
+  const profRows = computeStylistProfitabilityRows(
+    stylistList,
+    profAppointments ?? [],
+    wages ?? [],
+    hoursHistory ?? [],
+    productCosts ?? [],
+    profPeriodStart,
+    today,
+    workingPattern ?? [],
+    leave ?? [],
+  );
+  const wagedRows = profRows.filter((r) => !r.isProfitShare);
+  const marginShareAtTarget = wagedRows.length > 0 ? wagedRows.filter((r) => !r.isUnderperforming).length / wagedRows.length : null;
+
+  // Product-line real committed cost — real ingredient cost × real units
+  // actually made (the batch log), summed across every SKU. Confirmed
+  // revenue against that spend is always 0 here since no real online
+  // sales data exists yet (Shopify not connected) — shown honestly as an
+  // unproven-investment size, not a fabricated ROI.
+  const ingredientById = new Map((ingredients ?? []).map((i) => [i.id, i]));
+  const costPerSku = new Map<string, number>();
+  for (const item of recipeItems ?? []) {
+    const ing = ingredientById.get(item.ingredient_id);
+    if (!ing) continue;
+    const purchaseQty = Number(ing.purchase_quantity);
+    const costPerBaseUnit = purchaseQty > 0 ? Number(ing.purchase_price) / purchaseQty : 0;
+    costPerSku.set(item.sku_id, (costPerSku.get(item.sku_id) ?? 0) + costPerBaseUnit * Number(item.quantity_used));
+  }
+  let retailCommittedCost = 0;
+  let retailUnitsCommitted = 0;
+  for (const b of retailBatches ?? []) {
+    retailCommittedCost += (costPerSku.get(b.sku_id) ?? 0) * Number(b.quantity_made);
+    retailUnitsCommitted += Number(b.quantity_made);
+  }
+
+  return jsonResponse({
+    ok: true,
+    pace: {
+      trailing7dRevenue: Math.round(trailing7dRevenue),
+      prior7dRevenue: Math.round(prior7dRevenue),
+      monthToDateRevenue: Math.round(monthToDateRevenue),
+      projectedMonthRevenue: Math.round(projectedMonthRevenue),
+      priorMonthRevenue: priorMonthRevenue > 0 ? Math.round(priorMonthRevenue) : null,
+    },
+    clientConcentration: {
+      topClientSharePct: totalRevenue90d > 0 ? Math.round((topClientRevenue90d / totalRevenue90d) * 1000) / 1000 : null,
+      totalRevenue90d: Math.round(totalRevenue90d),
+    },
+    margin: {
+      shareAtTarget: marginShareAtTarget,
+      stylistCount: wagedRows.length,
+    },
+    cac,
+    productLine: {
+      totalCommittedCost: Math.round(retailCommittedCost * 100) / 100,
+      totalUnitsCommitted: retailUnitsCommitted,
+    },
+  });
+}
+
 interface RequestBody {
   query:
     | 'blended_cac_30d'
@@ -1886,7 +2073,8 @@ interface RequestBody {
     | 'service_profitability'
     | 'service_names_list'
     | 'industry_benchmarks_list'
-    | 'retail_sku_costs';
+    | 'retail_sku_costs'
+    | 'business_risk_inputs';
   retailTypeNames?: string[];
   clientName?: string;
   periods?: unknown;
@@ -1955,6 +2143,8 @@ Deno.serve(async (req) => {
       return handleIndustryBenchmarksList();
     case 'retail_sku_costs':
       return handleRetailSkuCosts();
+    case 'business_risk_inputs':
+      return handleBusinessRiskInputs();
     default:
       return jsonResponse({ ok: false, error: 'Unknown query' }, 400);
   }
