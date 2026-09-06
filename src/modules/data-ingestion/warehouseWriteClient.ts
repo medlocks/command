@@ -343,6 +343,15 @@ export function setRetailComplianceStep(payload: { skuId: string; stepKey: strin
   return callFunction({ entity: 'retail_compliance_steps', action: 'commit', payload });
 }
 
+/** Records a real production run — also doubles as the batch record label-compliance/PIF requirements expect to exist. */
+export function commitRetailProductionBatch(payload: { skuId: string; batchNumber: string; producedDate: string; quantityMade: number; notes?: string | null }): Promise<WarehouseWriteResult> {
+  return callFunction({ entity: 'retail_production_batches', action: 'commit', payload });
+}
+
+export function removeRetailProductionBatch(payload: { id: string }): Promise<WarehouseWriteResult> {
+  return callFunction({ entity: 'retail_production_batches', action: 'remove', payload });
+}
+
 export function updateRetailSku(payload: {
   id: string;
   name?: string;

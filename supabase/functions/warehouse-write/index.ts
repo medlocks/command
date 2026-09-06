@@ -1513,6 +1513,49 @@ async function handleRetailComplianceStepSet(payload: unknown): Promise<Response
   return jsonResponse({ ok: true, rowsWritten: 1 });
 }
 
+interface RetailProductionBatchPayload {
+  skuId: string;
+  batchNumber: string;
+  producedDate: string;
+  quantityMade: number;
+  notes?: string | null;
+}
+
+async function handleRetailProductionBatchCommit(payload: unknown): Promise<Response> {
+  const p = payload as Partial<RetailProductionBatchPayload> | null;
+  if (!p || typeof p.skuId !== 'string' || !p.skuId) return jsonResponse({ ok: false, error: 'skuId is required' }, 400);
+  if (typeof p.batchNumber !== 'string' || !p.batchNumber.trim()) return jsonResponse({ ok: false, error: 'batchNumber is required' }, 400);
+  if (typeof p.producedDate !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(p.producedDate)) {
+    return jsonResponse({ ok: false, error: 'producedDate must be a YYYY-MM-DD date' }, 400);
+  }
+  if (typeof p.quantityMade !== 'number' || !Number.isFinite(p.quantityMade) || p.quantityMade <= 0 || !Number.isInteger(p.quantityMade)) {
+    return jsonResponse({ ok: false, error: 'quantityMade must be a positive whole number' }, 400);
+  }
+
+  const { data, error } = await supabase
+    .from('retail_production_batches')
+    .insert({ sku_id: p.skuId, batch_number: p.batchNumber.trim(), produced_date: p.producedDate, quantity_made: p.quantityMade, notes: p.notes ?? null })
+    .select('id')
+    .single();
+  if (error) {
+    if (error.code === '23505') return jsonResponse({ ok: false, error: 'That batch number is already used for this product' }, 409);
+    return jsonResponse({ ok: false, error: error.message }, 500);
+  }
+
+  return jsonResponse({ ok: true, rowsWritten: 1, id: data.id });
+}
+
+async function handleRetailProductionBatchRemove(payload: unknown): Promise<Response> {
+  const p = payload as { id?: string } | null;
+  if (!p || typeof p.id !== 'string' || !p.id) {
+    return jsonResponse({ ok: false, error: 'id is required' }, 400);
+  }
+  const { error } = await supabase.from('retail_production_batches').delete().eq('id', p.id);
+  if (error) return jsonResponse({ ok: false, error: error.message }, 500);
+
+  return jsonResponse({ ok: true, rowsWritten: 1 });
+}
+
 // ---------------------------------------------------------------------
 // dispatch
 // ---------------------------------------------------------------------
@@ -1538,7 +1581,8 @@ interface RequestBody {
     | 'retail_ingredients'
     | 'retail_skus'
     | 'retail_recipe_items'
-    | 'retail_compliance_steps';
+    | 'retail_compliance_steps'
+    | 'retail_production_batches';
   action: 'commit' | 'sync_cycle' | 'update' | 'remove' | 'resolve';
   rows?: unknown;
   payload?: unknown;
@@ -1625,6 +1669,12 @@ Deno.serve(async (req) => {
   if (body.entity === 'retail_compliance_steps') {
     if (body.action === 'commit') return handleRetailComplianceStepSet(body.payload);
     return jsonResponse({ ok: false, error: 'Unknown action for retail_compliance_steps' }, 400);
+  }
+
+  if (body.entity === 'retail_production_batches') {
+    if (body.action === 'commit') return handleRetailProductionBatchCommit(body.payload);
+    if (body.action === 'remove') return handleRetailProductionBatchRemove(body.payload);
+    return jsonResponse({ ok: false, error: 'Unknown action for retail_production_batches' }, 400);
   }
 
   if (body.action !== 'commit') {

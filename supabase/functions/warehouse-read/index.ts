@@ -1616,6 +1616,8 @@ async function handleRetailSkuCosts(): Promise<Response> {
     { data: ingredients, error: ingredientsError },
     { data: recipeItems, error: recipeError },
     { data: complianceRows, error: complianceError },
+    { data: tierRows, error: tierError },
+    { data: batchRows, error: batchError },
   ] = await Promise.all([
     supabase
       .from('retail_skus')
@@ -1624,16 +1626,27 @@ async function handleRetailSkuCosts(): Promise<Response> {
     supabase.from('retail_ingredients').select('id, name, purchase_price, purchase_quantity, unit, notes').order('name'),
     supabase.from('retail_recipe_items').select('id, sku_id, ingredient_id, quantity_used'),
     supabase.from('retail_compliance_steps').select('sku_id, step_key, completed_at, notes'),
+    supabase.from('retail_ingredient_price_tiers').select('ingredient_id, purchase_price, purchase_quantity, unit'),
+    supabase.from('retail_production_batches').select('id, sku_id, batch_number, produced_date, quantity_made, notes').order('produced_date', { ascending: false }),
   ]);
   if (skusError) return jsonResponse({ ok: false, error: skusError.message }, 500);
   if (ingredientsError) return jsonResponse({ ok: false, error: ingredientsError.message }, 500);
   if (recipeError) return jsonResponse({ ok: false, error: recipeError.message }, 500);
   if (complianceError) return jsonResponse({ ok: false, error: complianceError.message }, 500);
+  if (tierError) return jsonResponse({ ok: false, error: tierError.message }, 500);
+  if (batchError) return jsonResponse({ ok: false, error: batchError.message }, 500);
 
   const ingredientById = new Map((ingredients ?? []).map((i) => [i.id, i]));
+  const tiersByIngredient = new Map<string, { purchase_price: number; purchase_quantity: number; unit: string }[]>();
+  for (const t of tierRows ?? []) {
+    const list = tiersByIngredient.get(t.ingredient_id) ?? [];
+    list.push({ purchase_price: Number(t.purchase_price), purchase_quantity: Number(t.purchase_quantity), unit: t.unit as string });
+    tiersByIngredient.set(t.ingredient_id, list);
+  }
 
   const skuResults = (skus ?? []).map((sku) => {
     const items = (recipeItems ?? []).filter((r) => r.sku_id === sku.id);
+    const weeklyCapacityForTips: number | null = sku.weekly_capacity_units !== null ? Number(sku.weekly_capacity_units) : null;
     const recipe = items
       .map((item) => {
         const ing = ingredientById.get(item.ingredient_id);
@@ -1641,14 +1654,41 @@ async function handleRetailSkuCosts(): Promise<Response> {
         const purchaseQty = Number(ing.purchase_quantity);
         const costPerBaseUnit = purchaseQty > 0 ? Number(ing.purchase_price) / purchaseQty : 0;
         const lineCost = costPerBaseUnit * Number(item.quantity_used);
+
+        // Bulk-buy tip (added 6 Sep 2026) — only fires when real usage at
+        // the SKU's own stated capacity ceiling would burn through the
+        // *currently selected* pack size in under a week AND a real known
+        // tier (same unit only — never mixes ml with g) is genuinely
+        // cheaper per unit. Framed against the capacity ceiling, not
+        // "current sales", since real order-volume data doesn't exist yet
+        // (no Shopify sync) — this is honestly a "if/when you're at your
+        // stated ceiling" tip, not a claim about today's actual usage.
+        let bulkBuyTip: string | null = null;
+        const quantityUsed = Number(item.quantity_used);
+        const weeklyUsage = weeklyCapacityForTips !== null ? quantityUsed * weeklyCapacityForTips : null;
+        if (weeklyUsage !== null && weeklyUsage >= purchaseQty && purchaseQty > 0) {
+          const knownTiers = (tiersByIngredient.get(ing.id) ?? []).filter((t) => t.unit === ing.unit);
+          let cheapest: { purchase_quantity: number; costPerUnit: number } | null = null;
+          for (const t of knownTiers) {
+            if (t.purchase_quantity <= 0) continue;
+            const costPerUnit = t.purchase_price / t.purchase_quantity;
+            if (!cheapest || costPerUnit < cheapest.costPerUnit) cheapest = { purchase_quantity: t.purchase_quantity, costPerUnit };
+          }
+          if (cheapest && cheapest.costPerUnit < costPerBaseUnit * 0.98) {
+            const savingPct = Math.round((1 - cheapest.costPerUnit / costPerBaseUnit) * 100);
+            bulkBuyTip = `At full capacity (${weeklyCapacityForTips}/week) you'd use ~${Math.round(weeklyUsage).toLocaleString('en-GB')}${ing.unit}/week of this — the ${cheapest.purchase_quantity.toLocaleString('en-GB')}${ing.unit} pack would cut cost per ${ing.unit} by about ${savingPct}%.`;
+          }
+        }
+
         return {
           recipeItemId: item.id as string,
           ingredientId: ing.id as string,
           ingredientName: ing.name as string,
           unit: ing.unit as string,
-          quantityUsed: Number(item.quantity_used),
+          quantityUsed,
           costPerBaseUnit: Math.round(costPerBaseUnit * 10000) / 10000,
           lineCost: Math.round(lineCost * 100) / 100,
+          bulkBuyTip,
         };
       })
       .filter((x): x is NonNullable<typeof x> => x !== null);
@@ -1725,6 +1765,19 @@ async function handleRetailSkuCosts(): Promise<Response> {
       .filter((c) => c.sku_id === sku.id)
       .map((c) => ({ stepKey: c.step_key as string, completedAt: c.completed_at as string | null, notes: c.notes as string | null }));
 
+    // Real production run log (added 6 Sep 2026) — also doubles as the
+    // batch records the label-compliance/PIF requirements above expect.
+    const batches = (batchRows ?? [])
+      .filter((b) => b.sku_id === sku.id)
+      .map((b) => ({
+        id: b.id as string,
+        batchNumber: b.batch_number as string,
+        producedDate: b.produced_date as string,
+        quantityMade: Number(b.quantity_made),
+        notes: b.notes as string | null,
+      }));
+    const totalUnitsMade = batches.reduce((sum, b) => sum + b.quantityMade, 0);
+
     return {
       skuId: sku.id as string,
       name: sku.name as string,
@@ -1752,6 +1805,8 @@ async function handleRetailSkuCosts(): Promise<Response> {
       monthlyCapacityUnits,
       capacityScaleNote,
       complianceSteps,
+      batches,
+      totalUnitsMade,
     };
   });
 

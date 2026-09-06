@@ -497,6 +497,16 @@ export interface RetailRecipeLine {
   quantityUsed: number;
   costPerBaseUnit: number;
   lineCost: number;
+  /** Bulk-buy tip (added 6 Sep 2026) — null unless real usage at the SKU's own stated capacity ceiling would burn through the current pack size in under a week AND a genuinely cheaper known pack size exists. */
+  bulkBuyTip: string | null;
+}
+
+export interface RetailProductionBatch {
+  id: string;
+  batchNumber: string;
+  producedDate: string;
+  quantityMade: number;
+  notes: string | null;
 }
 
 export interface RetailSkuCost {
@@ -532,6 +542,9 @@ export interface RetailSkuCost {
   capacityScaleNote: string | null;
   /** UK cosmetic-product legal readiness (added 6 Sep 2026) — real completion state per step; the fixed step definitions live in the product-line UI as sourced regulatory fact. */
   complianceSteps: { stepKey: string; completedAt: string | null; notes: string | null }[];
+  /** Real production run log (added 6 Sep 2026) — also doubles as the batch records the label-compliance/PIF requirements expect. */
+  batches: RetailProductionBatch[];
+  totalUnitsMade: number;
 }
 
 export interface RetailSkuCostsResult {

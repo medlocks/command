@@ -1019,6 +1019,38 @@ create table public.retail_recipe_items (
   unique (sku_id, ingredient_id) -- re-adding the same ingredient to a recipe updates its quantity, not a duplicate line
 );
 
+-- Real known pack-size price tiers per ingredient (added 6 Sep 2026) —
+-- lets the app spot when real usage at capacity would burn through the
+-- currently-selected pack size fast enough that a bigger, cheaper-per-unit
+-- tier is worth switching to. Sourced from the real supplier product pages
+-- (Fizzy Whiz / The Soap Kitchen) at the time each was entered — a
+-- supplier's own price list, not a live-syncable feed, so these go stale
+-- over time same as the ingredient's own purchase_price/purchase_quantity.
+create table public.retail_ingredient_price_tiers (
+  id uuid primary key default gen_random_uuid(),
+  ingredient_id uuid not null references public.retail_ingredients(id) on delete cascade,
+  purchase_price numeric(10,2) not null,
+  purchase_quantity numeric(10,4) not null,
+  unit text not null, -- must match the ingredient's own `unit` to be comparable
+  source_url text,
+  created_at timestamptz not null default now()
+);
+
+-- Real production run log (added 6 Sep 2026) — doubles as the batch
+-- records the label-compliance and Product Information File requirements
+-- (see `retail_compliance_steps`) expect to exist, not just a nice-to-have
+-- running count.
+create table public.retail_production_batches (
+  id uuid primary key default gen_random_uuid(),
+  sku_id uuid not null references public.retail_skus(id) on delete cascade,
+  batch_number text not null,
+  produced_date date not null,
+  quantity_made integer not null,
+  notes text,
+  created_at timestamptz not null default now(),
+  unique (sku_id, batch_number)
+);
+
 -- Real UK cosmetic-product legal requirements before a product can be sold
 -- (added 6 Sep 2026) — sourced from the Office for Product Safety and
 -- Standards' SCPN regime (UK Cosmetic Products Enforcement Regulations
@@ -1042,6 +1074,8 @@ alter table public.retail_ingredients enable row level security;
 alter table public.retail_skus enable row level security;
 alter table public.retail_recipe_items enable row level security;
 alter table public.retail_compliance_steps enable row level security;
+alter table public.retail_ingredient_price_tiers enable row level security;
+alter table public.retail_production_batches enable row level security;
 
 create policy "owner_manager_retail_ingredients" on public.retail_ingredients
   for all using (public.current_user_role() in ('owner', 'manager', 'admin'));
@@ -1050,6 +1084,10 @@ create policy "owner_manager_retail_skus" on public.retail_skus
 create policy "owner_manager_retail_recipe_items" on public.retail_recipe_items
   for all using (public.current_user_role() in ('owner', 'manager', 'admin'));
 create policy "owner_manager_retail_compliance_steps" on public.retail_compliance_steps
+  for all using (public.current_user_role() in ('owner', 'manager', 'admin'));
+create policy "owner_manager_retail_ingredient_price_tiers" on public.retail_ingredient_price_tiers
+  for all using (public.current_user_role() in ('owner', 'manager', 'admin'));
+create policy "owner_manager_retail_production_batches" on public.retail_production_batches
   for all using (public.current_user_role() in ('owner', 'manager', 'admin'));
 
 -- =====================================================================

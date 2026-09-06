@@ -9,9 +9,11 @@ import {
 } from '@/modules/data-ingestion/warehouseReadClient';
 import {
   commitRetailIngredient,
+  commitRetailProductionBatch,
   commitRetailRecipeItem,
   commitRetailSku,
   removeRetailIngredient,
+  removeRetailProductionBatch,
   removeRetailRecipeItem,
   setRetailComplianceStep,
   updateRetailSku,
@@ -255,17 +257,20 @@ function RecipeBuilder({ sku, ingredients, onChanged }: { sku: RetailSkuCost; in
       {sku.recipe.length > 0 && (
         <ul className="mb-3 space-y-1">
           {sku.recipe.map((line) => (
-            <li key={line.recipeItemId} className="flex items-center justify-between text-sm">
-              <span className="text-[var(--color-ink-secondary)]">
-                {line.quantityUsed}
-                {line.unit} {line.ingredientName}
-              </span>
-              <span className="flex items-center gap-2">
-                <span className="tabular-nums text-[var(--color-ink)]">{currency.format(line.lineCost)}</span>
-                <button type="button" onClick={() => void handleRemoveLine(line.recipeItemId)} className="text-xs text-[var(--color-ink-muted)] hover:text-[var(--color-critical)]">
-                  Remove
-                </button>
-              </span>
+            <li key={line.recipeItemId}>
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-[var(--color-ink-secondary)]">
+                  {line.quantityUsed}
+                  {line.unit} {line.ingredientName}
+                </span>
+                <span className="flex items-center gap-2">
+                  <span className="tabular-nums text-[var(--color-ink)]">{currency.format(line.lineCost)}</span>
+                  <button type="button" onClick={() => void handleRemoveLine(line.recipeItemId)} className="text-xs text-[var(--color-ink-muted)] hover:text-[var(--color-critical)]">
+                    Remove
+                  </button>
+                </span>
+              </div>
+              {line.bulkBuyTip && <p className="mt-0.5 text-xs text-[var(--color-accent)]">{line.bulkBuyTip}</p>}
             </li>
           ))}
         </ul>
@@ -547,6 +552,120 @@ function ComplianceChecklist({ sku, onChanged }: { sku: RetailSkuCost; onChanged
   );
 }
 
+const dateFormat = new Intl.DateTimeFormat('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+
+/** Suggests the next batch number as {YYYYMMDD}-{n} for today, incrementing n if a batch already exists for today — a starting point, not a fixed convention, since real batch-numbering schemes vary and Blake can always overwrite it. */
+function suggestBatchNumber(existing: readonly { batchNumber: string }[]): string {
+  const today = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+  const todaysCount = existing.filter((b) => b.batchNumber.startsWith(today)).length;
+  return `${today}-${todaysCount + 1}`;
+}
+
+/**
+ * Production batch log (added 6 Sep 2026) — also doubles as the batch
+ * records the label-compliance/PIF compliance steps above expect to
+ * exist, not just a running "how many have we made" count.
+ */
+function BatchLog({ sku, onChanged }: { sku: RetailSkuCost; onChanged: () => void }) {
+  const [expanded, setExpanded] = useState(false);
+  const [batchNumber, setBatchNumber] = useState('');
+  const [producedDate, setProducedDate] = useState(new Date().toISOString().slice(0, 10));
+  const [quantityMade, setQuantityMade] = useState('');
+  const [notes, setNotes] = useState('');
+  const [result, setResult] = useState<WarehouseWriteResult | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const qtyNum = Number(quantityMade);
+  const canAdd = batchNumber.trim() !== '' && producedDate !== '' && quantityMade !== '' && Number.isFinite(qtyNum) && qtyNum > 0 && Number.isInteger(qtyNum);
+
+  function openForm() {
+    setBatchNumber(suggestBatchNumber(sku.batches));
+    setExpanded(true);
+  }
+
+  async function handleAdd(event: React.FormEvent) {
+    event.preventDefault();
+    if (!canAdd) return;
+    setIsSubmitting(true);
+    setResult(null);
+    try {
+      const res = await commitRetailProductionBatch({ skuId: sku.skuId, batchNumber: batchNumber.trim(), producedDate, quantityMade: qtyNum, notes: notes.trim() || null });
+      setResult(res);
+      if (res.ok) {
+        setQuantityMade('');
+        setNotes('');
+        setBatchNumber(suggestBatchNumber([...sku.batches, { batchNumber: batchNumber.trim() }]));
+        onChanged();
+      }
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  async function handleRemove(id: string) {
+    const res = await removeRetailProductionBatch({ id });
+    if (res.ok) onChanged();
+  }
+
+  return (
+    <div className="mt-3 border-t border-[var(--color-border)] pt-3">
+      <button
+        type="button"
+        onClick={() => (expanded ? setExpanded(false) : openForm())}
+        className="flex w-full items-center justify-between gap-2 text-left"
+      >
+        <p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-ink-muted)]">Production batches</p>
+        <span className="text-xs font-medium text-[var(--color-ink-muted)]">
+          {sku.totalUnitsMade.toLocaleString('en-GB')} made total {expanded ? '▲' : '▼'}
+        </span>
+      </button>
+      {expanded && (
+        <div className="mt-2">
+          {sku.batches.length > 0 && (
+            <ul className="mb-3 space-y-1">
+              {sku.batches.map((b) => (
+                <li key={b.id} className="flex items-center justify-between text-sm">
+                  <span className="text-[var(--color-ink-secondary)]">
+                    <span className="font-medium text-[var(--color-ink)]">{b.batchNumber}</span> — {dateFormat.format(new Date(`${b.producedDate}T00:00:00Z`))},{' '}
+                    {b.quantityMade.toLocaleString('en-GB')} made{b.notes ? ` — ${b.notes}` : ''}
+                  </span>
+                  <button type="button" onClick={() => void handleRemove(b.id)} className="ml-2 shrink-0 text-xs text-[var(--color-ink-muted)] hover:text-[var(--color-critical)]">
+                    Remove
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <form className="space-y-2" onSubmit={(event) => void handleAdd(event)}>
+            <div className="grid grid-cols-3 gap-2">
+              <div>
+                <label className="mb-1 block text-xs font-medium text-[var(--color-ink-muted)]">Batch number</label>
+                <input value={batchNumber} onChange={(event) => setBatchNumber(event.target.value)} className={INPUT_CLASSES} />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-[var(--color-ink-muted)]">Date made</label>
+                <input type="date" value={producedDate} onChange={(event) => setProducedDate(event.target.value)} className={INPUT_CLASSES} />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-[var(--color-ink-muted)]">Units made</label>
+                <input type="number" min="1" step="1" value={quantityMade} onChange={(event) => setQuantityMade(event.target.value)} className={INPUT_CLASSES} />
+              </div>
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-[var(--color-ink-muted)]">Notes (optional)</label>
+              <input value={notes} onChange={(event) => setNotes(event.target.value)} className={INPUT_CLASSES} />
+            </div>
+            <Button type="submit" variant="secondary" className="!px-3 !py-2 text-xs" disabled={!canAdd || isSubmitting}>
+              {isSubmitting ? 'Saving…' : 'Log batch'}
+            </Button>
+            {result && <ResultLine result={result} />}
+          </form>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function SkuCard({ sku, ingredients, onChanged }: { sku: RetailSkuCost; ingredients: RetailIngredient[]; onChanged: () => void }) {
   return (
     <Card>
@@ -579,6 +698,7 @@ function SkuCard({ sku, ingredients, onChanged }: { sku: RetailSkuCost; ingredie
       <WholesaleReadiness sku={sku} onChanged={onChanged} />
       <ProductionCapacity sku={sku} onChanged={onChanged} />
       <ComplianceChecklist sku={sku} onChanged={onChanged} />
+      <BatchLog sku={sku} onChanged={onChanged} />
       <RecipeBuilder sku={sku} ingredients={ingredients} onChanged={onChanged} />
     </Card>
   );
