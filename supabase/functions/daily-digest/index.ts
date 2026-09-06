@@ -415,23 +415,114 @@ function escapeHtml(text: string): string {
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+// ---------------------------------------------------------------------
+// Pace signal (added 6 Sep 2026) — "hard to not hit goals" only works if
+// falling behind is visible before the month's already lost. Shown every
+// day, unconditionally (unlike CAC's anomaly-only gate), since watching
+// pace is the point, not just reacting to a spike. No target is set by
+// the owner anywhere in this app — this compares real trailing periods
+// against each other and against last month's own real total, never a
+// number Blake would have to type in himself.
+// ---------------------------------------------------------------------
+
+const PACE_WINDOW_DAYS = 7;
+const MONTH_LABEL_FORMAT = new Intl.DateTimeFormat('en-GB', { month: 'long', year: 'numeric' });
+
+interface PaceSignal {
+  trailing7dRevenue: number;
+  prior7dRevenue: number;
+  percentChange: number | null;
+  monthLabel: string;
+  monthToDateRevenue: number;
+  projectedMonthRevenue: number;
+  priorMonthLabel: string;
+  priorMonthRevenue: number | null;
+}
+
+async function gatherPaceSignal(): Promise<PaceSignal> {
+  const today = new Date().toISOString().slice(0, 10);
+  const todayDate = new Date(`${today}T00:00:00Z`);
+
+  const trailingStart = addDays(today, -(PACE_WINDOW_DAYS - 1));
+  const priorStart = addDays(today, -(2 * PACE_WINDOW_DAYS - 1));
+  const priorEnd = addDays(today, -PACE_WINDOW_DAYS);
+
+  const monthStart = `${today.slice(0, 7)}-01`;
+  const daysElapsedInMonth = todayDate.getUTCDate();
+  const daysInMonth = new Date(Date.UTC(todayDate.getUTCFullYear(), todayDate.getUTCMonth() + 1, 0)).getUTCDate();
+
+  const priorMonthDate = new Date(Date.UTC(todayDate.getUTCFullYear(), todayDate.getUTCMonth() - 1, 1));
+  const priorMonthStart = priorMonthDate.toISOString().slice(0, 10);
+  const priorMonthEnd = new Date(Date.UTC(todayDate.getUTCFullYear(), todayDate.getUTCMonth(), 0)).toISOString().slice(0, 10);
+
+  const { data, error } = await supabase
+    .from('fresha_appointments')
+    .select('client_name, scheduled_date, net_sales')
+    .in('status', REAL_WORK_STATUSES)
+    .gte('scheduled_date', priorMonthStart)
+    .lte('scheduled_date', today);
+  if (error) throw new Error(error.message);
+
+  const rows = (data ?? []).filter((r) => !r.client_name || !INTERNAL_BLOCK_CLIENT_NAMES.has(r.client_name));
+  const sumInRange = (start: string, end: string) =>
+    rows.filter((r) => r.scheduled_date && r.scheduled_date >= start && r.scheduled_date <= end).reduce((sum, r) => sum + Number(r.net_sales), 0);
+
+  const trailing7dRevenue = sumInRange(trailingStart, today);
+  const prior7dRevenue = sumInRange(priorStart, priorEnd);
+  const monthToDateRevenue = sumInRange(monthStart, today);
+  const projectedMonthRevenue = daysElapsedInMonth > 0 ? (monthToDateRevenue / daysElapsedInMonth) * daysInMonth : 0;
+  const priorMonthRevenue = sumInRange(priorMonthStart, priorMonthEnd);
+
+  return {
+    trailing7dRevenue: Math.round(trailing7dRevenue),
+    prior7dRevenue: Math.round(prior7dRevenue),
+    percentChange: prior7dRevenue > 0 ? (trailing7dRevenue - prior7dRevenue) / prior7dRevenue : null,
+    monthLabel: MONTH_LABEL_FORMAT.format(todayDate),
+    monthToDateRevenue: Math.round(monthToDateRevenue),
+    projectedMonthRevenue: Math.round(projectedMonthRevenue),
+    priorMonthLabel: MONTH_LABEL_FORMAT.format(priorMonthDate),
+    priorMonthRevenue: priorMonthRevenue > 0 ? Math.round(priorMonthRevenue) : null,
+  };
+}
+
+function buildPaceSectionHtml(pace: PaceSignal): string {
+  const trendLine =
+    pace.percentChange === null
+      ? `Last 7 days: £${pace.trailing7dRevenue.toLocaleString('en-GB')} in real bookings — not enough history in the 7 days before that yet to compare a trend.`
+      : `Last 7 days: £${pace.trailing7dRevenue.toLocaleString('en-GB')} in real bookings, ${pace.percentChange >= 0 ? 'up' : 'down'} ${Math.abs(Math.round(pace.percentChange * 100))}% vs the 7 days before (£${pace.prior7dRevenue.toLocaleString('en-GB')}).`;
+
+  let runRateLine = `${pace.monthLabel} so far: £${pace.monthToDateRevenue.toLocaleString('en-GB')}, on pace for about £${pace.projectedMonthRevenue.toLocaleString('en-GB')} by month end.`;
+  if (pace.priorMonthRevenue !== null) {
+    const vsLastMonth = pace.projectedMonthRevenue - pace.priorMonthRevenue;
+    const direction = vsLastMonth >= 0 ? 'ahead of' : 'behind';
+    const pctVsLastMonth = Math.round((Math.abs(vsLastMonth) / pace.priorMonthRevenue) * 100);
+    runRateLine += ` That's ${direction} ${pace.priorMonthLabel}'s £${pace.priorMonthRevenue.toLocaleString('en-GB')} (${pctVsLastMonth}%).`;
+  }
+
+  return `<h2 style="font-size:15px;margin:0 0 6px;">Your pace</h2><p style="margin:0 0 4px;">${trendLine}</p><p style="margin:0;">${runRateLine}</p>`;
+}
+
 function buildDigestEmail(
   flags: DigestStockFlag[],
   reorderRecs: DigestReorderRec[],
   cac: CacSignal | null,
   retention: RetentionSignal,
+  pace: PaceSignal,
 ): { subject: string; html: string } {
   const retentionCount = retention.colourTopUpsTotalCount + retention.lapseRiskTotalCount;
   const itemCount = flags.length + reorderRecs.length + (cac ? 1 : 0) + retentionCount;
 
+  const sections: string[] = [buildPaceSectionHtml(pace)];
+
   if (itemCount === 0) {
+    sections.push(
+      `<h2 style="font-size:15px;margin:20px 0 6px;">Everything else</h2><p style="margin:0;">Nothing needs your attention today — no critical stock flags, no urgent reorders, no unusual CAC movement, no clients due a nudge.</p><p style="color:#8a8a8a;font-size:12px;margin:8px 0 0;">This runs every morning whether or not there's anything to report, so a missing email means the digest itself has broken, not that everything's fine.</p>`,
+    );
     return {
-      subject: 'Medlocks Command Centre — all clear today',
-      html: `<p>Nothing needs your attention today — no critical stock flags, no urgent reorders, no unusual CAC movement, no clients due a nudge.</p><p style="color:#8a8a8a;font-size:12px;">This runs every morning whether or not there's anything to report, so a missing email means the digest itself has broken, not that everything's fine.</p>`,
+      subject: 'Medlocks Command Centre — your pace today',
+      html: `<div style="font-family:sans-serif;color:#1a1a1a;">${sections.join('')}</div>`,
     };
   }
-
-  const sections: string[] = [];
 
   if (retentionCount > 0) {
     const renderRow = (item: DigestRetentionItem) => {
@@ -510,8 +601,13 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const [{ flags, reorderRecs }, cac, retention] = await Promise.all([gatherStockSignals(), gatherCacSignal(), gatherRetentionSignal()]);
-    const { subject, html } = buildDigestEmail(flags, reorderRecs, cac, retention);
+    const [{ flags, reorderRecs }, cac, retention, pace] = await Promise.all([
+      gatherStockSignals(),
+      gatherCacSignal(),
+      gatherRetentionSignal(),
+      gatherPaceSignal(),
+    ]);
+    const { subject, html } = buildDigestEmail(flags, reorderRecs, cac, retention, pace);
     await sendDigestEmail(subject, html);
     const itemCount = flags.length + reorderRecs.length + (cac ? 1 : 0) + retention.colourTopUpsTotalCount + retention.lapseRiskTotalCount;
     return jsonResponse({ ok: true, itemCount });
