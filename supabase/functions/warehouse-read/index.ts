@@ -511,7 +511,7 @@ async function handleClientInsightLists(): Promise<Response> {
   ] = await Promise.all([
     supabase
       .from('fresha_appointments')
-      .select('client_name, category, scheduled_date')
+      .select('client_name, category, scheduled_date, net_sales')
       .in('status', REAL_WORK_STATUSES)
       .lte('scheduled_date', today),
     supabase.from('clients').select('id, full_name, profiling_opt_out, email, mobile, marketing_consent').is('deleted_at', null),
@@ -546,6 +546,11 @@ async function handleClientInsightLists(): Promise<Response> {
 
   let unmatchedAppointmentCount = 0;
   const groups = new Map<string, { clientId: string; clientName: string; category: string; dates: string[] }>();
+  // Real lifetime value per client (added 6 Sep 2026) — total real spend
+  // across every real appointment they've ever had, not just the category
+  // being flagged. Lets win-back effort be prioritized by who's actually
+  // worth chasing first, not just by count or urgency alone.
+  const lifetimeValueByClientId = new Map<string, number>();
 
   for (const a of appointments ?? []) {
     if (!a.scheduled_date) continue;
@@ -555,6 +560,8 @@ async function handleClientInsightLists(): Promise<Response> {
       continue;
     }
     if (client.profilingOptOut) continue;
+
+    lifetimeValueByClientId.set(client.id, (lifetimeValueByClientId.get(client.id) ?? 0) + Number(a.net_sales));
 
     const category = a.category ?? 'Uncategorized';
     const key = `${client.id}::${category}`;
@@ -598,6 +605,7 @@ async function handleClientInsightLists(): Promise<Response> {
           email: contact?.email ?? null,
           mobile: contact?.mobile ?? null,
           marketingConsent: contact?.marketingConsent ?? false,
+          lifetimeValue: Math.round(lifetimeValueByClientId.get(group.clientId) ?? 0),
         };
         const dismissal = activeDismissal(group.clientId, 'colour-top-up', group.category, prediction.lastVisitDate);
         if (dismissal) {
@@ -623,6 +631,7 @@ async function handleClientInsightLists(): Promise<Response> {
           email: contact?.email ?? null,
           mobile: contact?.mobile ?? null,
           marketingConsent: contact?.marketingConsent ?? false,
+          lifetimeValue: Math.round(lifetimeValueByClientId.get(group.clientId) ?? 0),
         };
         const dismissal = activeDismissal(group.clientId, 'lapse-risk', group.category, prediction.lastVisitDate);
         if (dismissal) {
@@ -634,8 +643,14 @@ async function handleClientInsightLists(): Promise<Response> {
     }
   }
 
-  (colourTopUpsDue as { daysUntilDue: number }[]).sort((a, b) => a.daysUntilDue - b.daysUntilDue);
-  (lapseRisk as { score: number }[]).sort((a, b) => b.score - a.score);
+  // Prioritized by real lifetime value first (added 6 Sep 2026, per direct
+  // request: chase who's actually worth the most first) — urgency still
+  // breaks ties among clients of equal value, but is no longer the primary
+  // sort.
+  (colourTopUpsDue as { lifetimeValue: number; daysUntilDue: number }[]).sort(
+    (a, b) => b.lifetimeValue - a.lifetimeValue || a.daysUntilDue - b.daysUntilDue,
+  );
+  (lapseRisk as { lifetimeValue: number; score: number }[]).sort((a, b) => b.lifetimeValue - a.lifetimeValue || b.score - a.score);
   (dismissed as { dismissedAt: string }[]).sort((a, b) => b.dismissedAt.localeCompare(a.dismissedAt));
 
   return jsonResponse({ ok: true, colourTopUpsDue, lapseRisk, dismissed, unmatchedAppointmentCount, activeClientCount });

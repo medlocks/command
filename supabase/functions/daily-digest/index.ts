@@ -145,6 +145,8 @@ interface DigestRetentionItem {
   actionHref: string | null;
   actionLabel: string | null;
   hasConsent: boolean;
+  /** Real total spend across every real appointment this client has ever had (added 6 Sep 2026) — prioritizes who's actually worth chasing first. */
+  lifetimeValue: number;
 }
 
 interface RetentionSignal {
@@ -173,7 +175,11 @@ async function gatherRetentionSignal(): Promise<RetentionSignal> {
     { data: clients, error: clientError },
     { data: dismissals, error: dismissalError },
   ] = await Promise.all([
-    supabase.from('fresha_appointments').select('client_name, category, scheduled_date').in('status', REAL_WORK_STATUSES).lte('scheduled_date', today),
+    supabase
+      .from('fresha_appointments')
+      .select('client_name, category, scheduled_date, net_sales')
+      .in('status', REAL_WORK_STATUSES)
+      .lte('scheduled_date', today),
     supabase
       .from('fresha_appointments')
       .select('client_name, category, net_sales')
@@ -207,10 +213,12 @@ async function gatherRetentionSignal(): Promise<RetentionSignal> {
   }
 
   const groups = new Map<string, { clientId: string; clientName: string; category: string; dates: string[] }>();
+  const lifetimeValueByClientId = new Map<string, number>();
   for (const a of appointments ?? []) {
     if (!a.scheduled_date) continue;
     const client = clientsByName.get(a.client_name);
     if (!client || client.profilingOptOut) continue;
+    lifetimeValueByClientId.set(client.id, (lifetimeValueByClientId.get(client.id) ?? 0) + Number(a.net_sales));
     const category = a.category ?? 'Uncategorized';
     const key = `${client.id}::${category}`;
     const group = groups.get(key) ?? { clientId: client.id, clientName: a.client_name, category, dates: [] };
@@ -242,6 +250,7 @@ async function gatherRetentionSignal(): Promise<RetentionSignal> {
             actionHref: action.href,
             actionLabel: action.label,
             hasConsent: contact?.marketingConsent ?? false,
+            lifetimeValue: Math.round(lifetimeValueByClientId.get(group.clientId) ?? 0),
             daysUntilDue,
           });
         }
@@ -259,6 +268,7 @@ async function gatherRetentionSignal(): Promise<RetentionSignal> {
           actionHref: action.href,
           actionLabel: action.label,
           hasConsent: contact?.marketingConsent ?? false,
+          lifetimeValue: Math.round(lifetimeValueByClientId.get(group.clientId) ?? 0),
           score: risk.score,
           isLowConfidence: prediction.isLowConfidence,
         });
@@ -266,8 +276,11 @@ async function gatherRetentionSignal(): Promise<RetentionSignal> {
     }
   }
 
-  colourTopUps.sort((a, b) => a.daysUntilDue - b.daysUntilDue);
-  lapseRiskAll.sort((a, b) => b.score - a.score);
+  // Prioritized by real lifetime value first (added 6 Sep 2026) — mirrors
+  // the in-app Clients page's own sort, so the email's top rows are always
+  // who's actually worth chasing first, urgency breaking ties only.
+  colourTopUps.sort((a, b) => b.lifetimeValue - a.lifetimeValue || a.daysUntilDue - b.daysUntilDue);
+  lapseRiskAll.sort((a, b) => b.lifetimeValue - a.lifetimeValue || b.score - a.score);
 
   // Same £-impact formulas as the in-app to-do list (`todoList.ts`) — kept
   // in sync by hand, not shared code. Lapse risk only counts
@@ -531,10 +544,10 @@ function buildDigestEmail(
         : item.hasConsent
           ? ''
           : ' (no marketing consent on file)';
-      return `<li><strong>${escapeHtml(item.clientName)}</strong> — ${item.detail}${action}</li>`;
+      return `<li><strong>${escapeHtml(item.clientName)}</strong> (£${item.lifetimeValue.toLocaleString('en-GB')} lifetime) — ${item.detail}${action}</li>`;
     };
 
-    let retentionHtml = `<h2 style="font-size:15px;margin:20px 0 6px;">Clients — worth a nudge today</h2><p style="margin:0 0 8px;color:#4b4160;">Estimated £${retention.estimatedImpact.toLocaleString('en-GB')} at stake across everyone currently flagged — tap a name below to send a real message now.</p>`;
+    let retentionHtml = `<h2 style="font-size:15px;margin:20px 0 6px;">Clients — worth a nudge today</h2><p style="margin:0 0 8px;color:#4b4160;">Estimated £${retention.estimatedImpact.toLocaleString('en-GB')} at stake across everyone currently flagged — sorted by lifetime value, tap a name below to send a real message now.</p>`;
     if (retention.colourTopUps.length > 0) {
       const rows = retention.colourTopUps.map(renderRow).join('');
       const more = retention.colourTopUpsTotalCount > retention.colourTopUps.length ? `<p style="margin:4px 0 0;color:#8a8a8a;font-size:12px;">+${retention.colourTopUpsTotalCount - retention.colourTopUps.length} more colour top-up${retention.colourTopUpsTotalCount - retention.colourTopUps.length === 1 ? '' : 's'} in the app.</p>` : '';

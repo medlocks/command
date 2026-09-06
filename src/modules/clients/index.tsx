@@ -149,7 +149,8 @@ function TopUpRow({ flag, onDismissed }: { flag: ColourTopUpDue; onDismissed: ()
           </span>
         </div>
         <p className="mt-0.5 text-xs text-[var(--color-ink-muted)]">
-          Last visit {fmtDate(flag.lastVisitDate)} · {fmtInterval(flag.averageIntervalDays)}
+          Last visit {fmtDate(flag.lastVisitDate)} · {fmtInterval(flag.averageIntervalDays)} ·{' '}
+          <span className="font-medium text-[var(--color-ink-secondary)]">{currency.format(flag.lifetimeValue)} lifetime</span>
           {flag.isLowConfidence && ' · low confidence (thin history)'}
         </p>
       </button>
@@ -184,7 +185,8 @@ function LapseRiskRow({ flag, onDismissed }: { flag: LapseRiskFlag; onDismissed:
           </span>
         </div>
         <p className="mt-0.5 text-xs text-[var(--color-ink-muted)]">
-          {flag.daysSinceLastVisit}d since last {flag.category} visit · {fmtInterval(flag.averageIntervalDays)}
+          {flag.daysSinceLastVisit}d since last {flag.category} visit · {fmtInterval(flag.averageIntervalDays)} ·{' '}
+          <span className="font-medium text-[var(--color-ink-secondary)]">{currency.format(flag.lifetimeValue)} lifetime</span>
         </p>
       </button>
       {expanded && (
@@ -321,6 +323,7 @@ export function ClientsPage() {
             <h2 className="mb-2 text-xs font-semibold tracking-wide text-[var(--color-ink-muted)] uppercase">
               Colour top-up due ({topUpDue.length})
             </h2>
+            {topUpDue.length > 0 && <p className="mb-2 -mt-1 text-xs text-[var(--color-ink-muted)]">Sorted by lifetime value — highest-value clients first.</p>}
             <Card className="p-0">
               {topUpDue.length === 0 ? (
                 <p className="p-4 text-sm text-[var(--color-ink-secondary)]">No one's due right now.</p>
@@ -338,6 +341,7 @@ export function ClientsPage() {
             <h2 className="mb-2 text-xs font-semibold tracking-wide text-[var(--color-ink-muted)] uppercase">
               Lapse risk ({lapseRisk.length})
             </h2>
+            {lapseRisk.length > 0 && <p className="mb-2 -mt-1 text-xs text-[var(--color-ink-muted)]">Sorted by lifetime value — highest-value clients first.</p>}
             <Card className="p-0">
               {lapseRisk.length === 0 ? (
                 <p className="p-4 text-sm text-[var(--color-ink-secondary)]">No one's trending toward lapsing right now.</p>

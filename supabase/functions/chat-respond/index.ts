@@ -361,7 +361,7 @@ async function buildClientRetentionContext(): Promise<string> {
   const [apptRes, clientsRes] = await Promise.all([
     supabase
       .from('fresha_appointments')
-      .select('client_name, category, scheduled_date')
+      .select('client_name, category, scheduled_date, net_sales')
       .in('status', REAL_WORK_STATUSES)
       .lte('scheduled_date', today),
     supabase.from('clients').select('id, full_name, profiling_opt_out').is('deleted_at', null),
@@ -376,7 +376,8 @@ async function buildClientRetentionContext(): Promise<string> {
     if (c.full_name) clientsByName.set(c.full_name, { id: c.id, profilingOptOut: c.profiling_opt_out });
   }
 
-  const groups = new Map<string, { category: string; dates: string[] }>();
+  const groups = new Map<string, { clientId: string; category: string; dates: string[] }>();
+  const lifetimeValueByClientId = new Map<string, number>();
   let unmatchedCount = 0;
   for (const a of appointments ?? []) {
     if (!a.scheduled_date) continue;
@@ -386,9 +387,10 @@ async function buildClientRetentionContext(): Promise<string> {
       continue;
     }
     if (client.profilingOptOut) continue;
+    lifetimeValueByClientId.set(client.id, (lifetimeValueByClientId.get(client.id) ?? 0) + Number(a.net_sales));
     const category = a.category ?? 'Uncategorized';
     const key = `${client.id}::${category}`;
-    const group = groups.get(key) ?? { category, dates: [] };
+    const group = groups.get(key) ?? { clientId: client.id, category, dates: [] };
     group.dates.push(a.scheduled_date);
     groups.set(key, group);
   }
@@ -397,6 +399,10 @@ async function buildClientRetentionContext(): Promise<string> {
   let topUpLowConfidenceCount = 0;
   const lapseScores: number[] = [];
   let lapseLowConfidenceCount = 0;
+  // Aggregate only (added 6 Sep 2026) — real total spend at risk across
+  // every flagged client, without naming any of them, consistent with
+  // this function's own no-individual-identity policy stated below.
+  let totalLifetimeValueAtRisk = 0;
 
   for (const group of groups.values()) {
     const prediction = predictNextVisit(group.dates);
@@ -406,6 +412,7 @@ async function buildClientRetentionContext(): Promise<string> {
       if (daysUntilDue >= -TOP_UP_MAX_OVERDUE_DAYS && daysUntilDue <= TOP_UP_DUE_WINDOW_DAYS) {
         topUpDueDays.push(daysUntilDue);
         if (prediction.isLowConfidence) topUpLowConfidenceCount++;
+        totalLifetimeValueAtRisk += lifetimeValueByClientId.get(group.clientId) ?? 0;
       }
     }
 
@@ -414,6 +421,7 @@ async function buildClientRetentionContext(): Promise<string> {
       if (risk.isAtRisk) {
         lapseScores.push(risk.score);
         if (prediction.isLowConfidence) lapseLowConfidenceCount++;
+        totalLifetimeValueAtRisk += lifetimeValueByClientId.get(group.clientId) ?? 0;
       }
     }
   }
@@ -432,10 +440,15 @@ async function buildClientRetentionContext(): Promise<string> {
 
   const unmatchedNote = unmatchedCount > 0 ? ` (${unmatchedCount} real appointments couldn't be matched to a known client by name and are excluded from these figures.)` : '';
 
+  const valueNote =
+    topUpDueDays.length + lapseScores.length > 0
+      ? `\nReal total lifetime spend across everyone currently flagged: ~£${Math.round(totalLifetimeValueAtRisk).toLocaleString('en-GB')} (the in-app Clients page and daily digest both prioritize win-back effort by each client's own real lifetime value, highest first).`
+      : '';
+
   return `CLIENT RETENTION SIGNALS (aggregate counts only — individual client identities are never included in this context, per this salon's data-minimization policy):
 
 Colour top-up due: ${topUpSection}
-Lapse risk: ${lapseSection}${unmatchedNote}`;
+Lapse risk: ${lapseSection}${unmatchedNote}${valueNote}`;
 }
 
 // ---------------------------------------------------------------------

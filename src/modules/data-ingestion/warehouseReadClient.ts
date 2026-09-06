@@ -88,6 +88,8 @@ export interface ColourTopUpDue {
   email: string | null;
   mobile: string | null;
   marketingConsent: boolean;
+  /** Real total spend across every real appointment this client has ever had (added 6 Sep 2026) — used to prioritize win-back effort by who's actually worth the most, not just by count or urgency. */
+  lifetimeValue: number;
 }
 
 export interface LapseRiskFlag {
@@ -101,6 +103,7 @@ export interface LapseRiskFlag {
   email: string | null;
   mobile: string | null;
   marketingConsent: boolean;
+  lifetimeValue: number;
 }
 
 /** A flag that would otherwise appear in `colourTopUpsDue`/`lapseRisk` but has an active manual dismissal — see `client_insight_dismissals`' own schema comment for the clears-on-next-real-visit design. */
