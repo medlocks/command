@@ -2281,7 +2281,11 @@ async function handleCompetitorSalonGaps(): Promise<Response> {
     });
   }
 
-  const { data: scanStatus } = await supabase.from('competitor_salons').select('name, source_type, last_scanned_at, is_active').order('name');
+  const { data: scanStatus } = await supabase
+    .from('competitor_salons')
+    .select('name, source_type, last_scanned_at, is_active')
+    .eq('is_own_salon', false)
+    .order('name');
 
   return jsonResponse({
     ok: true,
@@ -2352,6 +2356,98 @@ async function handleCompetitorProductListings(): Promise<Response> {
   });
 }
 
+/**
+ * Real, explicit keyword themes over real review text (added 7 Sep
+ * 2026, per direct request: "building avatar profiles... reading
+ * complaints good reviews"). Deliberately simple substring matching, not
+ * sentiment ML — auditable against the exact real quotes it's matching.
+ * A review can match more than one theme; `rating <= 3` reviews are
+ * tracked separately as real complaints regardless of theme match, since
+ * a low rating is itself the signal worth surfacing even if the text
+ * doesn't hit a keyword.
+ */
+const VOC_THEMES: Array<{ theme: string; keywords: string[] }> = [
+  { theme: 'personal_warmth', keywords: ['friendly', 'welcoming', 'lovely', 'made me feel', 'comfortable', 'relaxing', 'chatty', 'calming', 'atmosphere'] },
+  { theme: 'listening_consultation', keywords: ['listened', 'explained', 'patient', 'understood', 'consultation', 'attentive'] },
+  { theme: 'result_quality', keywords: ['exactly how i wanted', 'exactly as i described', 'loved the result', 'amazing', 'perfect', 'beautiful', 'outstanding', 'exceptional', 'best'] },
+  { theme: 'stylist_loyalty', keywords: ["wouldn't trust anyone else", "can't get better", 'always ask for', 'my usual', 'never disappoint', "won't be going anywhere else"] },
+  { theme: 'value_price', keywords: ['worth it', 'affordable', 'expensive', 'pricey', 'good value', 'overpriced'] },
+  { theme: 'wait_time', keywords: ['late', 'waiting', 'on time', 'rushed', 'kept waiting'] },
+  { theme: 'cleanliness', keywords: ['clean', 'tidy', 'hygien'] },
+];
+
+function classifyVocThemes(text: string): string[] {
+  const lower = text.toLowerCase();
+  return VOC_THEMES.filter(({ keywords }) => keywords.some((kw) => lower.includes(kw))).map((t) => t.theme);
+}
+
+/**
+ * Voice-of-customer: real recurring themes and real verbatim quotes,
+ * never a fabricated persona. Deliberately shows actual quotes rather
+ * than synthesizing a "Sarah, 32" avatar card with invented detail — see
+ * [[feedback_medlocks_niche_positioning]]/real-data-only discipline.
+ * Own-salon and competitor reviews are reported separately, since "what
+ * our clients say" and "what the wider market's clients say" answer
+ * different questions. Real limitation always surfaced: only Fresha's
+ * server-rendered ~6-most-recent reviews per salon are visible per scan
+ * (see `salon_reviews`' own schema comment) — a real but partial, growing
+ * window, not the full review history.
+ */
+async function handleVoiceOfCustomer(): Promise<Response> {
+  const { data, error } = await supabase
+    .from('salon_reviews')
+    .select('rating, review_text, service_name, stylist_name, reviewed_at, competitor_salons(name, is_own_salon)')
+    .order('reviewed_at', { ascending: false });
+  if (error) return jsonResponse({ ok: false, error: error.message }, 500);
+
+  type ReviewRow = {
+    rating: number;
+    review_text: string;
+    service_name: string | null;
+    stylist_name: string | null;
+    reviewed_at: string;
+    competitor_salons: { name: string; is_own_salon: boolean } | null;
+  };
+
+  function summarize(rows: ReviewRow[]) {
+    const themeTally = new Map<string, { count: number; examples: Array<{ salonName: string; text: string; rating: number }> }>();
+    const complaints: Array<{ salonName: string; text: string; rating: number }> = [];
+
+    for (const row of rows) {
+      const salonName = row.competitor_salons?.name ?? 'Unknown';
+      const themes = classifyVocThemes(row.review_text);
+      for (const theme of themes) {
+        if (!themeTally.has(theme)) themeTally.set(theme, { count: 0, examples: [] });
+        const entry = themeTally.get(theme)!;
+        entry.count += 1;
+        if (entry.examples.length < 3) entry.examples.push({ salonName, text: row.review_text, rating: row.rating });
+      }
+      if (row.rating <= 3) complaints.push({ salonName, text: row.review_text, rating: row.rating });
+    }
+
+    const avgRating = rows.length > 0 ? Math.round((rows.reduce((sum, r) => sum + r.rating, 0) / rows.length) * 10) / 10 : null;
+
+    return {
+      reviewCount: rows.length,
+      avgRating,
+      themes: Array.from(themeTally.entries())
+        .map(([theme, v]) => ({ theme, count: v.count, examples: v.examples }))
+        .sort((a, b) => b.count - a.count),
+      complaints: complaints.slice(0, 10),
+    };
+  }
+
+  const rows = (data ?? []) as unknown as ReviewRow[];
+  const ownRows = rows.filter((r) => r.competitor_salons?.is_own_salon);
+  const competitorRows = rows.filter((r) => r.competitor_salons && !r.competitor_salons.is_own_salon);
+
+  return jsonResponse({
+    ok: true,
+    ownSalon: summarize(ownRows),
+    competitors: summarize(competitorRows),
+  });
+}
+
 interface RequestBody {
   query:
     | 'blended_cac_30d'
@@ -2377,7 +2473,8 @@ interface RequestBody {
     | 'business_risk_inputs'
     | 'debt_decisions_list'
     | 'competitor_salon_gaps'
-    | 'competitor_product_listings';
+    | 'competitor_product_listings'
+    | 'voice_of_customer';
   retailTypeNames?: string[];
   clientName?: string;
   periods?: unknown;
@@ -2454,6 +2551,8 @@ Deno.serve(async (req) => {
       return handleCompetitorSalonGaps();
     case 'competitor_product_listings':
       return handleCompetitorProductListings();
+    case 'voice_of_customer':
+      return handleVoiceOfCustomer();
     default:
       return jsonResponse({ ok: false, error: 'Unknown query' }, 400);
   }

@@ -700,3 +700,34 @@ export interface CompetitorProductListingsResult {
 export function fetchCompetitorProductListings(): Promise<CompetitorProductListingsResult> {
   return callFunction({ query: 'competitor_product_listings' });
 }
+
+export interface VocExample {
+  salonName: string;
+  text: string;
+  rating: number;
+}
+
+export interface VocTheme {
+  theme: string;
+  count: number;
+  examples: VocExample[];
+}
+
+export interface VocSummary {
+  reviewCount: number;
+  avgRating: number | null;
+  themes: VocTheme[];
+  complaints: VocExample[];
+}
+
+export interface VoiceOfCustomerResult {
+  ok: boolean;
+  ownSalon?: VocSummary;
+  competitors?: VocSummary;
+  error?: string;
+}
+
+/** Real, verbatim customer review themes (added 7 Sep 2026) — never a fabricated persona, just real recurring themes and real quotes from Medlocks' own reviews and the wider tracked market. See `handleVoiceOfCustomer`'s own comment for the real ~6-most-recent-per-salon limitation. */
+export function fetchVoiceOfCustomer(): Promise<VoiceOfCustomerResult> {
+  return callFunction({ query: 'voice_of_customer' });
+}

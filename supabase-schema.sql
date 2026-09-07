@@ -1312,6 +1312,12 @@ create table public.competitor_salons (
   -- name/address only, no real service or price data at any refresh
   -- cadence — not a bug to work around, a genuine absence of data.
   source_type text not null default 'fresha_json',
+  -- True for Medlocks' own real Fresha listing (added 7 Sep 2026, voice-
+  -- of-customer feature) — same table despite the "competitor" name,
+  -- since the review-scanning mechanism is identical either way and a
+  -- second parallel table would just duplicate the source_type/fresha_url
+  -- plumbing. Never counted toward gap detection or competitor examples.
+  is_own_salon boolean not null default false,
   is_active boolean not null default true,
   last_scanned_at timestamptz,
   added_at timestamptz not null default now()
@@ -1445,6 +1451,52 @@ insert into public.competitor_salons (name, fresha_url, address, source_type) va
 insert into public.competitor_products (name, source_type, source_url, currency) values
   ('Brondie Haircare', 'shopify_products_json', 'https://brondie-haircare.myshopify.com', 'AUD'),
   ('PROVOKE Purple Toning Serum', 'manual', 'https://provoke.co.uk/purple-toning-serum/', 'GBP');
+
+-- Medlocks' own real Fresha listing (added 7 Sep 2026, voice-of-customer
+-- feature) — same page template and `__NEXT_DATA__` mechanism as the
+-- competitor rows above, so it rides the same daily scan/cron rather
+-- than needing separate infrastructure. `is_own_salon = true` keeps it
+-- fully excluded from every competitor-facing computation (gap examples,
+-- product pricing) — it exists here only to be scanned for its own real
+-- reviews.
+insert into public.competitor_salons (name, fresha_url, address, is_own_salon) values
+  ('Medlocks Hair Design', 'https://www.fresha.com/a/medlocks-hair-design-wakefield-26-wood-street-x9l21wv2', '26 Wood Street, Wakefield WF1 2ED', true);
+
+-- Real customer reviews (added 7 Sep 2026, per direct request: "building
+-- avatar profiles like building intel on the customer by reading
+-- complaints good reviews"). Scraped from the same `__NEXT_DATA__` blob
+-- as services, at `props.pageProps.data.location.reviews.edges[].node`
+-- — real rating, full review text, reviewer first name, real service
+-- and stylist (parsed from the review's own real `footer.text`), and
+-- real date. Important real limitation: Fresha's public page only
+-- server-renders the ~6 most recent reviews per salon (`pageInfo.
+-- hasNextPage` is real but true — the rest sit behind Fresha's private,
+-- authenticated API, which is deliberately not reverse-engineered here).
+-- That means this is a real but partial rolling window, not the full
+-- review history — it grows a genuine archive over time as the daily
+-- scan keeps upserting newly-seen reviews, rather than ever claiming
+-- completeness it doesn't have.
+create table public.salon_reviews (
+  id uuid primary key default gen_random_uuid(),
+  salon_id uuid not null references public.competitor_salons(id) on delete cascade,
+  fresha_review_id text not null,
+  rating smallint not null,
+  review_text text not null,
+  reviewer_name text,
+  service_name text,
+  stylist_name text,
+  reviewed_at timestamptz not null,
+  scraped_at timestamptz not null default now(),
+  unique (salon_id, fresha_review_id)
+);
+
+create index idx_salon_reviews_salon on public.salon_reviews(salon_id);
+create index idx_salon_reviews_rating on public.salon_reviews(rating);
+
+alter table public.salon_reviews enable row level security;
+
+create policy "owner_manager_salon_reviews" on public.salon_reviews
+  for all using (public.current_user_role() in ('owner', 'manager', 'admin'));
 
 -- =====================================================================
 -- End of schema v1

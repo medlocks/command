@@ -85,13 +85,59 @@ interface FreshaServiceGroup {
   items: FreshaServiceItem[];
 }
 
-function extractServices(html: string): FreshaServiceItem[] {
+interface FreshaLocationData {
+  services?: FreshaServiceGroup[];
+  reviews?: { edges?: Array<{ node: FreshaReviewNode }> };
+}
+
+function extractLocationData(html: string): FreshaLocationData {
   const match = html.match(/<script id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/);
   if (!match) throw new Error('__NEXT_DATA__ blob not found in page HTML');
   const data = JSON.parse(match[1]);
-  const groups: FreshaServiceGroup[] | undefined = data?.props?.pageProps?.data?.location?.services;
-  if (!Array.isArray(groups)) throw new Error('No services array at props.pageProps.data.location.services');
-  return groups.flatMap((g) => g.items ?? []);
+  const location: FreshaLocationData | undefined = data?.props?.pageProps?.data?.location;
+  if (!location) throw new Error('No location object at props.pageProps.data.location');
+  return location;
+}
+
+function extractServices(location: FreshaLocationData): FreshaServiceItem[] {
+  if (!Array.isArray(location.services)) throw new Error('No services array at props.pageProps.data.location.services');
+  return location.services.flatMap((g) => g.items ?? []);
+}
+
+/**
+ * Real customer reviews (added 7 Sep 2026, per direct request: "building
+ * avatar profiles... reading complaints good reviews"). Fresha's real
+ * `footer.fallbackText` already has the real reviewer-facing text with
+ * names resolved (e.g. "2 days ago  •  Cut & Finish  •  with Chloe") —
+ * simpler and more robust to split that real string than to redo Fresha's
+ * own interpolation logic. `hasNextPage` is real but true on every salon
+ * checked so far: only the ~6 most recent reviews are server-rendered,
+ * the rest sit behind Fresha's private authenticated API (deliberately
+ * not reverse-engineered here) — a real partial window, not the full
+ * history, that grows into a genuine archive via the daily upsert.
+ */
+interface FreshaReviewNode {
+  id: string;
+  rating: number;
+  text: string;
+  date: { iso: string };
+  author: { name: string } | null;
+  footer: { fallbackText: string } | null;
+}
+
+function parseReviewFooter(fallbackText: string | undefined): { serviceName: string | null; stylistName: string | null } {
+  if (!fallbackText) return { serviceName: null, stylistName: null };
+  const parts = fallbackText.split('•').map((p) => p.trim());
+  const servicePart = parts[1] ?? null;
+  const stylistPart = parts[2] ?? null;
+  return {
+    serviceName: servicePart && !/^\d+\s+services?$/i.test(servicePart) ? servicePart : null,
+    stylistName: stylistPart ? stylistPart.replace(/^with\s+/i, '') : null,
+  };
+}
+
+function extractReviews(location: FreshaLocationData): FreshaReviewNode[] {
+  return (location.reviews?.edges ?? []).map((e) => e.node).filter(Boolean);
 }
 
 interface CompetitorSalonRow {
@@ -99,6 +145,7 @@ interface CompetitorSalonRow {
   name: string;
   fresha_url: string;
   source_type: string;
+  is_own_salon: boolean;
 }
 
 Deno.serve(async (req) => {
@@ -112,12 +159,12 @@ Deno.serve(async (req) => {
 
   const { data: competitors, error: fetchError } = await supabase
     .from('competitor_salons')
-    .select('id, name, fresha_url, source_type')
+    .select('id, name, fresha_url, source_type, is_own_salon')
     .eq('is_active', true);
 
   if (fetchError) return jsonResponse({ ok: false, error: fetchError.message }, 500);
 
-  const results: Array<{ competitor: string; ok: boolean; servicesFound?: number; error?: string }> = [];
+  const results: Array<{ competitor: string; ok: boolean; servicesFound?: number; reviewsFound?: number; error?: string }> = [];
 
   for (const competitor of (competitors ?? []) as CompetitorSalonRow[]) {
     if (competitor.source_type !== 'fresha_json') {
@@ -131,49 +178,79 @@ Deno.serve(async (req) => {
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const html = await res.text();
-      const items = extractServices(html);
-
+      const location = extractLocationData(html);
       const now = new Date().toISOString();
-      // Fresha repeats some items under a "Featured" group as well as
-      // their real category group (same real service, listed twice on
-      // the page) — de-dupe by name, last occurrence wins, since a
-      // Postgres upsert can't touch the same conflict key twice in one
-      // batch.
-      function buildRow(item: FreshaServiceItem) {
-        return {
-          competitor_id: competitor.id,
-          service_name: item.name,
-          gap_tag: classifyGapTag(item.name),
-          price_gbp: item.retailPrice?.currency === 'GBP' ? item.retailPrice.value : null,
-          rating: item.ratingV2?.value ?? null,
-          review_count: item.reviewsCountV2?.value ?? null,
-          is_active: true,
-          last_seen_at: now,
-        };
+
+      let servicesFound = 0;
+      // Gap detection is meaningless for Medlocks' own listing (comparing
+      // it to itself), so services are only scraped/stored for real
+      // competitors — Medlocks' own row is fetched for its reviews only.
+      if (!competitor.is_own_salon) {
+        const items = extractServices(location);
+
+        // Fresha repeats some items under a "Featured" group as well as
+        // their real category group (same real service, listed twice on
+        // the page) — de-dupe by name, last occurrence wins, since a
+        // Postgres upsert can't touch the same conflict key twice in one
+        // batch.
+        function buildRow(item: FreshaServiceItem) {
+          return {
+            competitor_id: competitor.id,
+            service_name: item.name,
+            gap_tag: classifyGapTag(item.name),
+            price_gbp: item.retailPrice?.currency === 'GBP' ? item.retailPrice.value : null,
+            rating: item.ratingV2?.value ?? null,
+            review_count: item.reviewsCountV2?.value ?? null,
+            is_active: true,
+            last_seen_at: now,
+          };
+        }
+        const byName = new Map<string, ReturnType<typeof buildRow>>();
+        for (const item of items) byName.set(item.name, buildRow(item));
+        const rows = Array.from(byName.values());
+        servicesFound = rows.length;
+
+        if (rows.length > 0) {
+          const { error: upsertError } = await supabase
+            .from('competitor_salon_services')
+            .upsert(rows, { onConflict: 'competitor_id,service_name' });
+          if (upsertError) throw new Error(upsertError.message);
+
+          // Anything not seen on this scan has genuinely dropped off their
+          // real menu (or changed name) — mark inactive rather than delete,
+          // keeping real history intact.
+          const seenNames = rows.map((r) => r.service_name);
+          await supabase
+            .from('competitor_salon_services')
+            .update({ is_active: false })
+            .eq('competitor_id', competitor.id)
+            .not('service_name', 'in', `(${seenNames.map((n) => `"${n.replace(/"/g, '\\"')}"`).join(',')})`);
+        }
       }
-      const byName = new Map<string, ReturnType<typeof buildRow>>();
-      for (const item of items) byName.set(item.name, buildRow(item));
-      const rows = Array.from(byName.values());
 
-      if (rows.length > 0) {
-        const { error: upsertError } = await supabase
-          .from('competitor_salon_services')
-          .upsert(rows, { onConflict: 'competitor_id,service_name' });
-        if (upsertError) throw new Error(upsertError.message);
-
-        // Anything not seen on this scan has genuinely dropped off their
-        // real menu (or changed name) — mark inactive rather than delete,
-        // keeping real history intact.
-        const seenNames = rows.map((r) => r.service_name);
-        await supabase
-          .from('competitor_salon_services')
-          .update({ is_active: false })
-          .eq('competitor_id', competitor.id)
-          .not('service_name', 'in', `(${seenNames.map((n) => `"${n.replace(/"/g, '\\"')}"`).join(',')})`);
+      const reviewNodes = extractReviews(location);
+      const reviewRows = reviewNodes.map((node) => {
+        const { serviceName, stylistName } = parseReviewFooter(node.footer?.fallbackText);
+        return {
+          salon_id: competitor.id,
+          fresha_review_id: node.id,
+          rating: node.rating,
+          review_text: node.text,
+          reviewer_name: node.author?.name ?? null,
+          service_name: serviceName,
+          stylist_name: stylistName,
+          reviewed_at: node.date.iso,
+        };
+      });
+      if (reviewRows.length > 0) {
+        const { error: reviewUpsertError } = await supabase
+          .from('salon_reviews')
+          .upsert(reviewRows, { onConflict: 'salon_id,fresha_review_id' });
+        if (reviewUpsertError) throw new Error(reviewUpsertError.message);
       }
 
       await supabase.from('competitor_salons').update({ last_scanned_at: now }).eq('id', competitor.id);
-      results.push({ competitor: competitor.name, ok: true, servicesFound: rows.length });
+      results.push({ competitor: competitor.name, ok: true, servicesFound, reviewsFound: reviewRows.length });
     } catch (err) {
       results.push({ competitor: competitor.name, ok: false, error: err instanceof Error ? err.message : String(err) });
     }
