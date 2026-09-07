@@ -13,6 +13,7 @@ import { SettingsPage } from '@/modules/settings';
 import { StockPage } from '@/modules/stock';
 import { PricingPage } from '@/modules/pricing';
 import { ProductLinePage } from '@/modules/product-line';
+import { MarketIntelPage } from '@/modules/market-intel';
 import { ManualDataPage } from '@/modules/manual-data';
 import {
   ChatIcon,
@@ -117,6 +118,7 @@ export default function App() {
                 <Route path="/stock" element={<StockPage />} />
                 <Route path="/pricing" element={<PricingPage />} />
                 <Route path="/product-line" element={<ProductLinePage />} />
+                <Route path="/market-intel" element={<MarketIntelPage />} />
                 <Route path="/data-import" element={<DataImportPage />} />
                 <Route path="/manual-data" element={<ManualDataPage />} />
               </Routes>

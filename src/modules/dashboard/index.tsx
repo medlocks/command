@@ -7,8 +7,7 @@ import { RiskMeter } from './components/RiskMeter';
 import { DebtDecisionSection } from './components/DebtDecisionSection';
 import { FinancialBenchmarksCard } from './components/FinancialBenchmarksCard';
 import { ValuationGoalCard } from './components/ValuationGoalCard';
-import { CompetitorInsightsCard } from './components/CompetitorInsightsCard';
-import { VoiceOfCustomerCard } from './components/VoiceOfCustomerCard';
+import { MarketIntelTeaserCard } from './components/MarketIntelTeaserCard';
 import { DraftJobPostButton } from './DraftJobPostButton';
 import { buildRealTodoListCandidates } from './realTodoListInput';
 import { buildRealHeadlineMetrics } from './realHeadlineMetrics';
@@ -212,8 +211,7 @@ export function HomePage() {
           onDecisionsChanged={loadBusinessRisk}
         />
       )}
-      <CompetitorInsightsCard />
-      <VoiceOfCustomerCard />
+      <MarketIntelTeaserCard />
 
       {metricsError && (
         <Card>

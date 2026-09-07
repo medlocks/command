@@ -188,6 +188,17 @@ Deno.serve(async (req) => {
       if (!competitor.is_own_salon) {
         const items = extractServices(location);
 
+        // Real change detection (added 7 Sep 2026, per direct request:
+        // "keep us always up to date... one step ahead") — diffs this
+        // scrape against what was actively stored before it, logged to
+        // `competitor_changes`. Read before the upsert overwrites it.
+        const { data: existingRows } = await supabase
+          .from('competitor_salon_services')
+          .select('service_name, price_gbp')
+          .eq('competitor_id', competitor.id)
+          .eq('is_active', true);
+        const existingByName = new Map((existingRows ?? []).map((r) => [r.service_name as string, r.price_gbp as number | null]));
+
         // Fresha repeats some items under a "Featured" group as well as
         // their real category group (same real service, listed twice on
         // the page) — de-dupe by name, last occurrence wins, since a
@@ -225,6 +236,27 @@ Deno.serve(async (req) => {
             .update({ is_active: false })
             .eq('competitor_id', competitor.id)
             .not('service_name', 'in', `(${seenNames.map((n) => `"${n.replace(/"/g, '\\"')}"`).join(',')})`);
+        }
+
+        const changeRows: Array<{ competitor_id: string; change_type: string; service_name: string; old_price_gbp: number | null; new_price_gbp: number | null }> = [];
+        for (const row of rows) {
+          if (!existingByName.has(row.service_name)) {
+            changeRows.push({ competitor_id: competitor.id, change_type: 'new_service', service_name: row.service_name, old_price_gbp: null, new_price_gbp: row.price_gbp });
+          } else {
+            const oldPrice = existingByName.get(row.service_name)!;
+            if (oldPrice !== null && row.price_gbp !== null && oldPrice !== row.price_gbp) {
+              changeRows.push({ competitor_id: competitor.id, change_type: 'price_change', service_name: row.service_name, old_price_gbp: oldPrice, new_price_gbp: row.price_gbp });
+            }
+          }
+        }
+        const seenNameSet = new Set(rows.map((r) => r.service_name));
+        for (const [name, price] of existingByName) {
+          if (!seenNameSet.has(name)) {
+            changeRows.push({ competitor_id: competitor.id, change_type: 'service_removed', service_name: name, old_price_gbp: price, new_price_gbp: null });
+          }
+        }
+        if (changeRows.length > 0) {
+          await supabase.from('competitor_changes').insert(changeRows);
         }
       }
 

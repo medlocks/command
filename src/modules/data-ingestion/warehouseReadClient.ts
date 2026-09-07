@@ -731,3 +731,48 @@ export interface VoiceOfCustomerResult {
 export function fetchVoiceOfCustomer(): Promise<VoiceOfCustomerResult> {
   return callFunction({ query: 'voice_of_customer' });
 }
+
+export interface CompetitorFullMenuService {
+  serviceName: string;
+  gapTag: string | null;
+  priceGbp: number | null;
+  rating: number | null;
+  reviewCount: number | null;
+}
+
+export interface CompetitorFullMenuEntry {
+  competitorName: string;
+  address: string;
+  services: CompetitorFullMenuService[];
+}
+
+export interface CompetitorSalonFullMenuResult {
+  ok: boolean;
+  competitors?: CompetitorFullMenuEntry[];
+  error?: string;
+}
+
+/** Real, complete per-competitor service menus (added 7 Sep 2026) — every active service, not just gap-tagged ones. See `handleCompetitorSalonFullMenu`'s own comment for why this deliberately doesn't attempt a fuzzy price match against Medlocks' own services. */
+export function fetchCompetitorSalonFullMenu(): Promise<CompetitorSalonFullMenuResult> {
+  return callFunction({ query: 'competitor_salon_full_menu' });
+}
+
+export interface CompetitorChange {
+  competitorName: string;
+  changeType: 'price_change' | 'new_service' | 'service_removed';
+  serviceName: string;
+  oldPriceGbp: number | null;
+  newPriceGbp: number | null;
+  detectedAt: string;
+}
+
+export interface CompetitorChangesFeedResult {
+  ok: boolean;
+  changes?: CompetitorChange[];
+  error?: string;
+}
+
+/** Real, live-detected competitor price/menu changes (added 7 Sep 2026) — see `handleCompetitorChangesFeed`'s own comment; detected by diffing each day's real scrape against what was previously stored. */
+export function fetchCompetitorChangesFeed(sinceDays?: number): Promise<CompetitorChangesFeedResult> {
+  return callFunction({ query: 'competitor_changes_feed', sinceDays });
+}

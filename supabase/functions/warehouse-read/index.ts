@@ -2176,6 +2176,95 @@ async function handleBusinessRiskInputs(): Promise<Response> {
   });
 }
 
+/**
+ * Real, full per-competitor service menu (added 7 Sep 2026, per direct
+ * request: "way more info inside it"). Unlike `handleCompetitorSalonGaps`,
+ * this returns every real active service, not just the gap-tagged ones —
+ * lets the market-intel page show genuine, browsable price lists rather
+ * than just the flagged differences. Deliberately does NOT attempt to
+ * match Medlocks' own service names against these for an automatic
+ * price comparison — real salon menus use inconsistent free-text naming
+ * ("Cut & Finish" vs "cut and finish" vs "Wet Cut") and a wrong fuzzy
+ * match would produce a misleading number; a human eyeballing both real
+ * lists side by side is safer than a false-precision auto-match.
+ */
+async function handleCompetitorSalonFullMenu(): Promise<Response> {
+  const { data, error } = await supabase
+    .from('competitor_salon_services')
+    .select('service_name, gap_tag, price_gbp, rating, review_count, competitor_salons(name, address)')
+    .eq('is_active', true)
+    .order('service_name');
+  if (error) return jsonResponse({ ok: false, error: error.message }, 500);
+
+  type FullMenuRow = {
+    service_name: string;
+    gap_tag: string | null;
+    price_gbp: number | null;
+    rating: number | null;
+    review_count: number | null;
+    competitor_salons: { name: string; address: string } | null;
+  };
+
+  const byCompetitor = new Map<
+    string,
+    { competitorName: string; address: string; services: Array<{ serviceName: string; gapTag: string | null; priceGbp: number | null; rating: number | null; reviewCount: number | null }> }
+  >();
+  for (const row of (data ?? []) as unknown as FullMenuRow[]) {
+    const name = row.competitor_salons?.name ?? 'Unknown';
+    if (!byCompetitor.has(name)) byCompetitor.set(name, { competitorName: name, address: row.competitor_salons?.address ?? '', services: [] });
+    byCompetitor.get(name)!.services.push({
+      serviceName: row.service_name,
+      gapTag: row.gap_tag,
+      priceGbp: row.price_gbp !== null ? Number(row.price_gbp) : null,
+      rating: row.rating !== null ? Number(row.rating) : null,
+      reviewCount: row.review_count,
+    });
+  }
+
+  return jsonResponse({ ok: true, competitors: Array.from(byCompetitor.values()) });
+}
+
+/**
+ * Real change log (added 7 Sep 2026, per direct request: "keep us
+ * always up to date... one step ahead"). Detected inline during the
+ * daily scan by diffing against the previously-stored real state — see
+ * `competitor-scan-salon`'s own comment. Capped at the most recent 50
+ * real entries; `sinceDays` narrows further if provided.
+ */
+async function handleCompetitorChangesFeed(sinceDays: unknown): Promise<Response> {
+  const days = typeof sinceDays === 'number' && sinceDays > 0 ? sinceDays : 30;
+  const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+
+  const { data, error } = await supabase
+    .from('competitor_changes')
+    .select('change_type, service_name, old_price_gbp, new_price_gbp, detected_at, competitor_salons(name)')
+    .gte('detected_at', since)
+    .order('detected_at', { ascending: false })
+    .limit(50);
+  if (error) return jsonResponse({ ok: false, error: error.message }, 500);
+
+  type ChangeRow = {
+    change_type: string;
+    service_name: string;
+    old_price_gbp: number | null;
+    new_price_gbp: number | null;
+    detected_at: string;
+    competitor_salons: { name: string } | null;
+  };
+
+  return jsonResponse({
+    ok: true,
+    changes: ((data ?? []) as unknown as ChangeRow[]).map((row) => ({
+      competitorName: row.competitor_salons?.name ?? 'Unknown',
+      changeType: row.change_type,
+      serviceName: row.service_name,
+      oldPriceGbp: row.old_price_gbp !== null ? Number(row.old_price_gbp) : null,
+      newPriceGbp: row.new_price_gbp !== null ? Number(row.new_price_gbp) : null,
+      detectedAt: row.detected_at,
+    })),
+  });
+}
+
 // Real, explicit substring keyword classification — intentionally
 // duplicated from `competitor-scan-salon`'s own `GAP_TAGS` (see that
 // function's comment for why: "no shared code between Edge Functions").
@@ -2474,12 +2563,15 @@ interface RequestBody {
     | 'debt_decisions_list'
     | 'competitor_salon_gaps'
     | 'competitor_product_listings'
-    | 'voice_of_customer';
+    | 'voice_of_customer'
+    | 'competitor_salon_full_menu'
+    | 'competitor_changes_feed';
   retailTypeNames?: string[];
   clientName?: string;
   periods?: unknown;
   stylistId?: string;
   range?: unknown;
+  sinceDays?: unknown;
 }
 
 Deno.serve(async (req) => {
@@ -2553,6 +2645,10 @@ Deno.serve(async (req) => {
       return handleCompetitorProductListings();
     case 'voice_of_customer':
       return handleVoiceOfCustomer();
+    case 'competitor_salon_full_menu':
+      return handleCompetitorSalonFullMenu();
+    case 'competitor_changes_feed':
+      return handleCompetitorChangesFeed(body.sinceDays);
     default:
       return jsonResponse({ ok: false, error: 'Unknown query' }, 400);
   }

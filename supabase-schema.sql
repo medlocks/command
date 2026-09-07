@@ -1498,6 +1498,31 @@ alter table public.salon_reviews enable row level security;
 create policy "owner_manager_salon_reviews" on public.salon_reviews
   for all using (public.current_user_role() in ('owner', 'manager', 'admin'));
 
+-- Real change log (added 7 Sep 2026, per direct request: "it needs to be
+-- an unfair advantage and keep us always up to date... one step ahead").
+-- Detected inline during `competitor-scan-salon`'s existing daily scan
+-- by diffing each real scrape against the previously-stored real prices/
+-- active set for that competitor — not a separate polling mechanism.
+-- `old/new_price_gbp` are both null for a 'new_service' or
+-- 'service_removed' entry (there's only one real price to record, not a
+-- change between two).
+create table public.competitor_changes (
+  id uuid primary key default gen_random_uuid(),
+  competitor_id uuid not null references public.competitor_salons(id) on delete cascade,
+  change_type text not null, -- 'price_change' | 'new_service' | 'service_removed'
+  service_name text not null,
+  old_price_gbp numeric(10,2),
+  new_price_gbp numeric(10,2),
+  detected_at timestamptz not null default now()
+);
+
+create index idx_competitor_changes_detected on public.competitor_changes(detected_at desc);
+
+alter table public.competitor_changes enable row level security;
+
+create policy "owner_manager_competitor_changes" on public.competitor_changes
+  for all using (public.current_user_role() in ('owner', 'manager', 'admin'));
+
 -- =====================================================================
 -- End of schema v1
 -- =====================================================================

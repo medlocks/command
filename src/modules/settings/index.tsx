@@ -82,6 +82,19 @@ export function SettingsPage() {
           <span className="shrink-0 text-[var(--color-ink-muted)]">→</span>
         </Card>
       </Link>
+      <Link to="/market-intel" className="block">
+        <Card className="flex items-center justify-between transition-shadow hover:shadow-md active:shadow-sm">
+          <div>
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-[var(--color-ink-muted)]">
+              Market Intel
+            </h2>
+            <p className="mt-1 text-sm text-[var(--color-ink-secondary)]">
+              Real, daily-scanned competitor prices/services, a change log, product-line rivals, and voice of the customer.
+            </p>
+          </div>
+          <span className="shrink-0 text-[var(--color-ink-muted)]">→</span>
+        </Card>
+      </Link>
       <Link to="/data-import" className="block">
         <Card className="flex items-center justify-between transition-shadow hover:shadow-md active:shadow-sm">
           <div>

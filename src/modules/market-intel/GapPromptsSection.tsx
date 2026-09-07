@@ -2,15 +2,12 @@ import { useEffect, useState } from 'react';
 import { Card, SkeletonRows } from '@/shared';
 import { buildCompetitorGapPrompts, labelForGapTag, type GapStrength } from '@/modules/insight-engine';
 import {
-  fetchCompetitorProductListings,
   fetchCompetitorSalonGaps,
   type CompetitorGap,
   type CompetitorGapDismissal,
-  type CompetitorProductListing,
-  type CompetitorProductManualReference,
   type CompetitorSalonStatus,
 } from '@/modules/data-ingestion/warehouseReadClient';
-import { triggerCompetitorProductScan, triggerCompetitorSalonScan } from '@/modules/data-ingestion/competitorScanClient';
+import { triggerCompetitorSalonScan } from '@/modules/data-ingestion/competitorScanClient';
 import { commitCompetitorGapDismissal, removeCompetitorGapDismissal } from '@/modules/data-ingestion/warehouseWriteClient';
 
 const STRENGTH_META: Record<GapStrength, { label: string; color: string }> = {
@@ -29,24 +26,17 @@ function formatRelativeScan(iso: string | null): string {
 }
 
 /**
- * Competitor scanning + idea prompting (added 7 Sep 2026, per direct
- * request: "linked to outbound research... scanning competitors and idea
- * prompting... look for anything new we don't do"). Every gap shown here
- * is real: sourced from live-scanned real Wakefield-area competitor
- * service menus (Fresha's own public data), cross-checked against
- * Medlocks' own real Fresha appointment history — see
- * `handleCompetitorSalonGaps`'s doc comment for exactly how. Product-line
- * competitor data is deliberately thin (see `competitor_products`'
- * seed comment in `supabase-schema.sql`) — extensive real research found
- * no true peer-scale UK rival for Glass Blonde.
+ * Real idea prompts (added 7 Sep 2026, per direct request: "look for
+ * anything new we don't do"). Every gap here is real: sourced from
+ * live-scanned real Wakefield-area competitor service menus, cross-
+ * checked against Medlocks' own real Fresha appointment history — see
+ * `handleCompetitorSalonGaps`'s doc comment for exactly how.
  */
-export function CompetitorInsightsCard() {
+export function GapPromptsSection() {
   const [gaps, setGaps] = useState<CompetitorGap[] | null>(null);
   const [salonStatus, setSalonStatus] = useState<CompetitorSalonStatus[] | null>(null);
   const [dismissedGaps, setDismissedGaps] = useState<CompetitorGapDismissal[]>([]);
-  const [productListings, setProductListings] = useState<CompetitorProductListing[] | null>(null);
-  const [manualProductRefs, setManualProductRefs] = useState<CompetitorProductManualReference[] | null>(null);
-  const [isScanning, setIsScanning] = useState<'salon' | 'product' | null>(null);
+  const [isScanning, setIsScanning] = useState(false);
   const [scanNote, setScanNote] = useState<string | null>(null);
   const [dismissingTag, setDismissingTag] = useState<string | null>(null);
 
@@ -58,21 +48,15 @@ export function CompetitorInsightsCard() {
         setDismissedGaps(res.dismissedGaps ?? []);
       }
     });
-    fetchCompetitorProductListings().then((res) => {
-      if (res.ok) {
-        setProductListings(res.listings ?? []);
-        setManualProductRefs(res.manualReferences ?? []);
-      }
-    });
   }
 
   useEffect(load, []);
 
-  async function refresh(kind: 'salon' | 'product') {
-    setIsScanning(kind);
+  async function refresh() {
+    setIsScanning(true);
     setScanNote(null);
-    const result = kind === 'salon' ? await triggerCompetitorSalonScan() : await triggerCompetitorProductScan();
-    setIsScanning(null);
+    const result = await triggerCompetitorSalonScan();
+    setIsScanning(false);
     if (!result.ok) {
       setScanNote(`Refresh failed: ${result.error ?? 'unknown error'}`);
       return;
@@ -84,7 +68,7 @@ export function CompetitorInsightsCard() {
 
   async function dismiss(tag: string) {
     setDismissingTag(tag);
-    await commitCompetitorGapDismissal(tag, 'Not relevant to Medlocks — dismissed from Home.');
+    await commitCompetitorGapDismissal(tag, 'Not relevant to Medlocks — dismissed from Market Intel.');
     setDismissingTag(null);
     load();
   }
@@ -102,36 +86,25 @@ export function CompetitorInsightsCard() {
   return (
     <Card>
       <div className="flex items-center justify-between gap-3">
-        <h2 className="text-sm font-semibold text-[var(--color-ink)]">Competitor watch &amp; idea prompts</h2>
+        <h2 className="text-sm font-semibold text-[var(--color-ink)]">Idea prompts</h2>
+        <button
+          type="button"
+          onClick={refresh}
+          disabled={isScanning}
+          className="rounded-md border border-[var(--color-border)] px-2.5 py-1 text-xs font-medium text-[var(--color-accent)] hover:bg-[var(--color-surface-hover)] disabled:opacity-50"
+        >
+          {isScanning ? 'Scanning…' : 'Refresh salon scan'}
+        </button>
       </div>
       <p className="mt-1 text-xs text-[var(--color-ink-muted)]">
-        Real Wakefield-area salon menus and Glass Blonde's real rival listings, scanned daily — flagging only what a real competitor genuinely offers and your own real booking history shows zero of.
+        Flagging only what a real competitor genuinely offers and your own real booking history shows zero of.
       </p>
+      {scanNote && <p className="mt-2 text-xs text-[var(--color-ink-secondary)]">{scanNote}</p>}
 
       {gaps === null && <SkeletonRows count={3} />}
 
       {prompts && (
         <>
-          <div className="mt-3 flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={() => refresh('salon')}
-              disabled={isScanning !== null}
-              className="rounded-md border border-[var(--color-border)] px-2.5 py-1 text-xs font-medium text-[var(--color-accent)] hover:bg-[var(--color-surface-hover)] disabled:opacity-50"
-            >
-              {isScanning === 'salon' ? 'Scanning salons…' : 'Refresh salon scan'}
-            </button>
-            <button
-              type="button"
-              onClick={() => refresh('product')}
-              disabled={isScanning !== null}
-              className="rounded-md border border-[var(--color-border)] px-2.5 py-1 text-xs font-medium text-[var(--color-accent)] hover:bg-[var(--color-surface-hover)] disabled:opacity-50"
-            >
-              {isScanning === 'product' ? 'Scanning brands…' : 'Refresh product scan'}
-            </button>
-            {scanNote && <span className="text-xs text-[var(--color-ink-secondary)]">{scanNote}</span>}
-          </div>
-
           {prompts.length === 0 && (
             <p className="mt-3 text-sm text-[var(--color-ink-secondary)]">No real gaps found — every service category tracked competitors offer, Medlocks' own real history already covers.</p>
           )}
@@ -186,30 +159,6 @@ export function CompetitorInsightsCard() {
               Tracking {salonStatus.length} real salons ({liveScannedCount} live-scanned, {salonStatus.length - liveScannedCount} manual reference) — last scan{' '}
               {formatRelativeScan(salonStatus.find((c) => c.isLiveScanned)?.lastScannedAt ?? null)}.
             </p>
-          )}
-
-          {productListings && productListings.length > 0 && (
-            <div className="mt-4 border-t border-[var(--color-border)] pt-3">
-              <p className="text-xs font-semibold text-[var(--color-ink)]">Glass Blonde's real rival pricing</p>
-              <ul className="mt-2 space-y-1">
-                {productListings.map((listing) => (
-                  <li key={`${listing.brandName}-${listing.title}`} className="flex items-center justify-between gap-2 text-xs text-[var(--color-ink-secondary)]">
-                    <span>
-                      {listing.brandName} — {listing.title}
-                    </span>
-                    <span className="tabular-nums">
-                      {listing.price !== null ? `${listing.price} ${listing.currency}` : '—'}
-                      {listing.inStock === false ? ' (out of stock)' : ''}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-              {manualProductRefs && manualProductRefs.length > 0 && (
-                <p className="mt-2 text-xs text-[var(--color-ink-muted)]">
-                  Also watching (no live feed): {manualProductRefs.map((r) => r.brandName).join(', ')}.
-                </p>
-              )}
-            </div>
           )}
         </>
       )}

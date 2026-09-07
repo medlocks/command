@@ -55,7 +55,7 @@ function ThemeList({ summary }: { summary: VocSummary }) {
  * limitation, not a bug), so this grows into a fuller real archive over
  * time rather than claiming completeness now.
  */
-export function VoiceOfCustomerCard() {
+export function VoiceOfCustomerSection() {
   const [ownSalon, setOwnSalon] = useState<VocSummary | null>(null);
   const [competitors, setCompetitors] = useState<VocSummary | null>(null);
 
