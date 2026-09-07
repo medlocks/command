@@ -1,15 +1,17 @@
 import { useEffect, useState } from 'react';
 import { Card, SkeletonRows } from '@/shared';
-import { buildCompetitorGapPrompts, type GapStrength } from '@/modules/insight-engine';
+import { buildCompetitorGapPrompts, labelForGapTag, type GapStrength } from '@/modules/insight-engine';
 import {
   fetchCompetitorProductListings,
   fetchCompetitorSalonGaps,
   type CompetitorGap,
+  type CompetitorGapDismissal,
   type CompetitorProductListing,
   type CompetitorProductManualReference,
   type CompetitorSalonStatus,
 } from '@/modules/data-ingestion/warehouseReadClient';
 import { triggerCompetitorProductScan, triggerCompetitorSalonScan } from '@/modules/data-ingestion/competitorScanClient';
+import { commitCompetitorGapDismissal, removeCompetitorGapDismissal } from '@/modules/data-ingestion/warehouseWriteClient';
 
 const STRENGTH_META: Record<GapStrength, { label: string; color: string }> = {
   strong: { label: 'Strong signal', color: 'var(--color-critical)' },
@@ -41,16 +43,19 @@ function formatRelativeScan(iso: string | null): string {
 export function CompetitorInsightsCard() {
   const [gaps, setGaps] = useState<CompetitorGap[] | null>(null);
   const [salonStatus, setSalonStatus] = useState<CompetitorSalonStatus[] | null>(null);
+  const [dismissedGaps, setDismissedGaps] = useState<CompetitorGapDismissal[]>([]);
   const [productListings, setProductListings] = useState<CompetitorProductListing[] | null>(null);
   const [manualProductRefs, setManualProductRefs] = useState<CompetitorProductManualReference[] | null>(null);
   const [isScanning, setIsScanning] = useState<'salon' | 'product' | null>(null);
   const [scanNote, setScanNote] = useState<string | null>(null);
+  const [dismissingTag, setDismissingTag] = useState<string | null>(null);
 
   function load() {
     fetchCompetitorSalonGaps().then((res) => {
       if (res.ok) {
         setGaps(res.gaps ?? []);
         setSalonStatus(res.competitors ?? []);
+        setDismissedGaps(res.dismissedGaps ?? []);
       }
     });
     fetchCompetitorProductListings().then((res) => {
@@ -74,6 +79,20 @@ export function CompetitorInsightsCard() {
     }
     const failed = (result.results ?? []).filter((r) => !r.ok && !r.error?.startsWith('skipped'));
     setScanNote(failed.length > 0 ? `Refreshed — ${failed.length} competitor(s) failed to scan (site may have changed).` : 'Refreshed with real, current data.');
+    load();
+  }
+
+  async function dismiss(tag: string) {
+    setDismissingTag(tag);
+    await commitCompetitorGapDismissal(tag, 'Not relevant to Medlocks — dismissed from Home.');
+    setDismissingTag(null);
+    load();
+  }
+
+  async function undismiss(tag: string) {
+    setDismissingTag(tag);
+    await removeCompetitorGapDismissal(tag);
+    setDismissingTag(null);
     load();
   }
 
@@ -125,9 +144,19 @@ export function CompetitorInsightsCard() {
                   <li key={p.tag} className="rounded-lg border border-[var(--color-border)] p-3">
                     <div className="flex items-center justify-between gap-2">
                       <p className="text-sm font-medium text-[var(--color-ink)]">{p.label}</p>
-                      <span className="text-xs font-semibold" style={{ color: meta.color }}>
-                        {meta.label}
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-semibold" style={{ color: meta.color }}>
+                          {meta.label}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => dismiss(p.tag)}
+                          disabled={dismissingTag === p.tag}
+                          className="text-xs font-medium text-[var(--color-ink-muted)] hover:text-[var(--color-ink)] hover:underline disabled:opacity-50"
+                        >
+                          Not for us
+                        </button>
+                      </div>
                     </div>
                     <p className="mt-1 text-xs text-[var(--color-ink-secondary)]">{p.narrative}</p>
                     {p.headlineExample && <p className="mt-1 text-xs text-[var(--color-ink-muted)]">e.g. {p.headlineExample}</p>}
@@ -135,6 +164,21 @@ export function CompetitorInsightsCard() {
                 );
               })}
             </ul>
+          )}
+
+          {dismissedGaps.length > 0 && (
+            <p className="mt-3 text-xs text-[var(--color-ink-muted)]">
+              Not for us:{' '}
+              {dismissedGaps.map((d, i) => (
+                <span key={d.tag}>
+                  {i > 0 && ', '}
+                  {labelForGapTag(d.tag)}{' '}
+                  <button type="button" onClick={() => undismiss(d.tag)} disabled={dismissingTag === d.tag} className="underline hover:text-[var(--color-ink)] disabled:opacity-50">
+                    (undo)
+                  </button>
+                </span>
+              ))}
+            </p>
           )}
 
           {salonStatus && (

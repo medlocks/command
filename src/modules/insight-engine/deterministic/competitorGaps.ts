@@ -34,7 +34,7 @@ const TAG_LABELS: Record<string, string> = {
   makeup: 'Makeup',
 };
 
-function labelForTag(tag: string): string {
+export function labelForGapTag(tag: string): string {
   return TAG_LABELS[tag] ?? tag;
 }
 
@@ -59,7 +59,7 @@ export function buildCompetitorGapPrompts(gaps: readonly CompetitorGap[], totalL
   return [...gaps]
     .sort((a, b) => b.competitorCount - a.competitorCount)
     .map((gap) => {
-      const label = labelForTag(gap.tag);
+      const label = labelForGapTag(gap.tag);
       const strength = strengthFor(gap.competitorCount);
       const denominator = totalLiveScannedCompetitors > 0 ? totalLiveScannedCompetitors : gap.competitorCount;
       const narrative =

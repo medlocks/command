@@ -655,10 +655,17 @@ export interface CompetitorSalonStatus {
   isActive: boolean;
 }
 
+export interface CompetitorGapDismissal {
+  tag: string;
+  note: string | null;
+  dismissedAt: string;
+}
+
 export interface CompetitorSalonGapsResult {
   ok: boolean;
   gaps?: CompetitorGap[];
   competitors?: CompetitorSalonStatus[];
+  dismissedGaps?: CompetitorGapDismissal[];
   error?: string;
 }
 

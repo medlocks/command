@@ -2212,18 +2212,34 @@ function classifyGapTag(serviceName: string): string | null {
  * Fresha service names classify into that tag — computed fresh every
  * call against `fresha_appointments`, not a hardcoded "things Medlocks
  * doesn't do" list that could go stale the day that changes.
+ *
+ * A tag can also be permanently dismissed (`competitor_gap_dismissals`) —
+ * added 7 Sep 2026 after a real correction: "more competitors offer X"
+ * is a computed fact, not automatically a recommendation (men's grooming
+ * was dismissed as a deliberate women-only/specialist positioning
+ * choice, not an oversight). Dismissed tags are excluded from `gaps` but
+ * still returned under `dismissedGaps` so the UI can show what's been
+ * silenced and why, with a way to undo it.
  */
 async function handleCompetitorSalonGaps(): Promise<Response> {
-  const [{ data: ownServices, error: ownError }, { data: competitorRows, error: competitorError }] = await Promise.all([
+  const [
+    { data: ownServices, error: ownError },
+    { data: competitorRows, error: competitorError },
+    { data: dismissalRows, error: dismissalError },
+  ] = await Promise.all([
     supabase.from('fresha_appointments').select('service'),
     supabase
       .from('competitor_salon_services')
       .select('service_name, gap_tag, price_gbp, rating, review_count, competitor_id, competitor_salons(name, address)')
       .eq('is_active', true)
       .not('gap_tag', 'is', null),
+    supabase.from('competitor_gap_dismissals').select('gap_tag, note, dismissed_at'),
   ]);
   if (ownError) return jsonResponse({ ok: false, error: ownError.message }, 500);
   if (competitorError) return jsonResponse({ ok: false, error: competitorError.message }, 500);
+  if (dismissalError) return jsonResponse({ ok: false, error: dismissalError.message }, 500);
+
+  const dismissedTags = new Set((dismissalRows ?? []).map((d) => d.gap_tag as string));
 
   const ownTags = new Set<string>();
   for (const row of ownServices ?? []) {
@@ -2248,6 +2264,7 @@ async function handleCompetitorSalonGaps(): Promise<Response> {
 
   for (const row of (competitorRows ?? []) as unknown as CompetitorServiceRow[]) {
     if (ownTags.has(row.gap_tag)) continue; // real coverage already exists — not a gap
+    if (dismissedTags.has(row.gap_tag)) continue; // real gap, deliberately not wanted — see competitor_gap_dismissals
     if (!byTag.has(row.gap_tag)) byTag.set(row.gap_tag, { tag: row.gap_tag, competitorIds: new Set(), examples: [] });
     const entry = byTag.get(row.gap_tag)!;
     entry.competitorIds.add(row.competitor_id);
@@ -2276,6 +2293,11 @@ async function handleCompetitorSalonGaps(): Promise<Response> {
       isLiveScanned: c.source_type === 'fresha_json',
       lastScannedAt: c.last_scanned_at as string | null,
       isActive: c.is_active as boolean,
+    })),
+    dismissedGaps: (dismissalRows ?? []).map((d) => ({
+      tag: d.gap_tag as string,
+      note: d.note as string | null,
+      dismissedAt: d.dismissed_at as string,
     })),
   });
 }

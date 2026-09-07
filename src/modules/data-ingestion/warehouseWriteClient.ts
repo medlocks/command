@@ -211,6 +211,16 @@ export function removeInsightDismissal(payload: InsightDismissalPayload): Promis
   return callFunction({ entity: 'client_insight_dismissal', action: 'remove', payload });
 }
 
+/** Permanently silences a competitor gap tag as "not for us" (added 7 Sep 2026) — e.g. men's grooming, dismissed as a deliberate women-only/specialist positioning choice, not an oversight. The underlying real scan data is untouched; this only stops it surfacing as an idea prompt. */
+export function commitCompetitorGapDismissal(gapTag: string, note?: string | null): Promise<WarehouseWriteResult> {
+  return callFunction({ entity: 'competitor_gap_dismissal', action: 'commit', payload: { gapTag, note } });
+}
+
+/** Reverses a competitor gap dismissal — it reappears next load if a live-scanned competitor still genuinely offers it and Medlocks still doesn't. */
+export function removeCompetitorGapDismissal(gapTag: string): Promise<WarehouseWriteResult> {
+  return callFunction({ entity: 'competitor_gap_dismissal', action: 'remove', payload: { gapTag } });
+}
+
 /** Adds a real product to the live `products` catalog (added 30 Aug 2026) — deduped by exact name match, same reasoning as `commitStylist`. Read-only/seeded scope this round (Requirements Section 3.7): a full add/remove/edit screen is a separate, later round — this is the Manual Data starter-set path. */
 export function commitProduct(payload: {
   name: string;

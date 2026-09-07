@@ -1390,6 +1390,29 @@ create policy "owner_manager_competitor_products" on public.competitor_products
 create policy "owner_manager_competitor_product_listings" on public.competitor_product_listings
   for all using (public.current_user_role() in ('owner', 'manager', 'admin'));
 
+-- Real business-positioning exclusions (added 7 Sep 2026, per direct
+-- correction: "No men's hair lol only women - doing men's as well is
+-- stupid imo... suggests they try do all okay not niche down and
+-- perfect one"). "More competitors offer X" is a real, computed fact —
+-- it is NOT automatically a recommendation. A tag dismissed here stays
+-- excluded from `handleCompetitorSalonGaps`'s real gap list permanently
+-- (until manually undismissed), independent of the live scan re-running
+-- daily — the scan keeps finding it real, this just stops it being
+-- surfaced as an idea prompt.
+create table public.competitor_gap_dismissals (
+  gap_tag text primary key,
+  note text,
+  dismissed_at timestamptz not null default now()
+);
+
+alter table public.competitor_gap_dismissals enable row level security;
+
+create policy "owner_manager_competitor_gap_dismissals" on public.competitor_gap_dismissals
+  for all using (public.current_user_role() in ('owner', 'manager', 'admin'));
+
+insert into public.competitor_gap_dismissals (gap_tag, note) values
+  ('mens_grooming', 'Deliberately women-only/specialist positioning — adding men''s services would dilute focus, not a real opportunity.');
+
 insert into public.competitor_salons (name, fresha_url, address) values
   ('Didi Krasniqi', 'https://www.fresha.com/a/didi-krasniqi-wakefield-uk-28-balne-lane-c6hualbm', '28 Balne Lane, Wakefield'),
   ('Lillywhite & Co. Hair & Aesthetics', 'https://www.fresha.com/a/lillywhite-co-hair-aesthetics-wakefield-277-dewsbury-road-af9d7lnj', '277 Dewsbury Road, Lupset, Wakefield'),
@@ -1399,6 +1422,25 @@ insert into public.competitor_salons (name, fresha_url, address) values
 
 insert into public.competitor_salons (name, fresha_url, address, source_type) values
   ('SophieGee Hairdressing', 'https://www.fresha.com/lvp/sophiegee-hairdressing-love-lane-Mx2WoQ', '12 Love Lane, Pontefract (specialist watch, not a footfall rival — real keratin/permanent-straightening specialty confirmed by hand research 7 Sep 2026, not live-scanned: Fresha''s own unclaimed-listing template carries no service/price data)', 'manual');
+
+-- Bigger, aspirational Wakefield salons (added 7 Sep 2026, per direct
+-- request: "focus on bigger players like room97 Scott banks enroute").
+-- All three are real, established, award-winning multi-stylist salons —
+-- genuinely bigger than the smaller independents above, useful for
+-- benchmarking ambition rather than day-to-day footfall rivalry. None
+-- are live-scannable: Room 97 and Scott Banks's own sites return HTTP
+-- 403 to a plain server-side fetch (real bot protection — not worth
+-- trying to bypass), and their Fresha presence is the same "lead-gen"
+-- `liteLocation` template as SophieGee (no real service data). En
+-- Route's own site has a real hair-services page but publishes
+-- marketing copy, not an itemized price list (consultation-based
+-- pricing, common at this tier) — its real "Specialist Services"
+-- section does name a genuine hair-loss/thinning-hair treatment
+-- (Nioxin-based) worth knowing about even without a live feed.
+insert into public.competitor_salons (name, fresha_url, address, source_type) values
+  ('Room 97 Creative Hairdressing', 'https://www.room97.com/', 'Trinity Walk, Wakefield WF1 1QU + The Springs, Leeds LS15 8GG (multi-award-winning, 2 locations — manual reference only, site returns HTTP 403 to automated fetches)', 'manual'),
+  ('Scott Banks Hairdressing', 'https://www.scottbanks.co.uk/', '9 The Bull Ring, Wakefield WF1 1HB (established luxury salon, large team incl. men''s services — manual reference only, site returns HTTP 403 to automated fetches)', 'manual'),
+  ('En Route Hair & Beauty', 'https://enroute.uk.com/services/hair-services/', '19 School Lane, Walton, Wakefield WF2 6PQ (award-winning, sustainability-focused, real hair-loss/thinning-hair specialist service — manual reference only, no itemized real price list published)', 'manual');
 
 insert into public.competitor_products (name, source_type, source_url, currency) values
   ('Brondie Haircare', 'shopify_products_json', 'https://brondie-haircare.myshopify.com', 'AUD'),

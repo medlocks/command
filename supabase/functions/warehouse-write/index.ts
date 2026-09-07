@@ -921,6 +921,41 @@ async function handleInsightDismissalRemove(payload: unknown): Promise<Response>
 }
 
 // ---------------------------------------------------------------------
+// competitor_gap_dismissals (added 7 Sep 2026) — "more competitors offer
+// X" is a real, computed fact but not automatically a recommendation
+// (men's grooming was the first real example: a deliberate women-only/
+// specialist positioning choice, not an oversight). Dismissing a tag
+// here stops it surfacing in `handleCompetitorSalonGaps`'s real gap
+// list without touching the underlying scan data at all.
+// ---------------------------------------------------------------------
+
+async function handleCompetitorGapDismissalCommit(payload: unknown): Promise<Response> {
+  const p = payload as { gapTag?: string; note?: string | null } | null;
+  if (!p || typeof p.gapTag !== 'string' || !p.gapTag) {
+    return jsonResponse({ ok: false, error: 'gapTag is required' }, 400);
+  }
+
+  const { error } = await supabase
+    .from('competitor_gap_dismissals')
+    .upsert({ gap_tag: p.gapTag, note: p.note ?? null, dismissed_at: new Date().toISOString() }, { onConflict: 'gap_tag' });
+  if (error) return jsonResponse({ ok: false, error: error.message }, 500);
+
+  return jsonResponse({ ok: true, rowsWritten: 1 });
+}
+
+async function handleCompetitorGapDismissalRemove(payload: unknown): Promise<Response> {
+  const p = payload as { gapTag?: string } | null;
+  if (!p || typeof p.gapTag !== 'string' || !p.gapTag) {
+    return jsonResponse({ ok: false, error: 'gapTag is required' }, 400);
+  }
+
+  const { error } = await supabase.from('competitor_gap_dismissals').delete().eq('gap_tag', p.gapTag);
+  if (error) return jsonResponse({ ok: false, error: error.message }, 500);
+
+  return jsonResponse({ ok: true, rowsWritten: 1 });
+}
+
+// ---------------------------------------------------------------------
 // products (Requirements Section 3.7) — the manually-maintained catalog
 // behind both stock mechanisms. Read-only/seeded scope this round (30 Aug
 // 2026): commit + update exist so a starter set can be entered via Manual
@@ -1777,6 +1812,12 @@ Deno.serve(async (req) => {
     if (body.action === 'commit') return handleInsightDismissalCommit(body.payload);
     if (body.action === 'remove') return handleInsightDismissalRemove(body.payload);
     return jsonResponse({ ok: false, error: 'Unknown action for client_insight_dismissal' }, 400);
+  }
+
+  if (body.entity === 'competitor_gap_dismissal') {
+    if (body.action === 'commit') return handleCompetitorGapDismissalCommit(body.payload);
+    if (body.action === 'remove') return handleCompetitorGapDismissalRemove(body.payload);
+    return jsonResponse({ ok: false, error: 'Unknown action for competitor_gap_dismissal' }, 400);
   }
 
   if (body.entity === 'stylists' && body.action === 'update') {
