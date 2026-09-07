@@ -985,6 +985,48 @@ select cron.schedule(
 );
 
 -- =====================================================================
+-- Competitor scan schedules (added 7 Sep 2026)
+-- =====================================================================
+-- Two independent daily scans (real request: "one for each please" — a
+-- salon-side scanner and a product-line-side scanner, kept separate
+-- rather than one merged function, matching the "no shared code between
+-- Edge Functions" convention). Same vault-secret reuse as shopify-sync
+-- above — no new secret created, `shopify_sync_cron_shared_secret`'s
+-- value is just the shared `AD_SYNC_SHARED_SECRET` under a vault-visible
+-- name, valid for any function that checks that header.
+select cron.schedule(
+  'competitor-scan-salon',
+  '30 4 * * *',
+  $$
+  select net.http_post(
+    url := 'https://yimtohrunyzkxdrlhhcr.supabase.co/functions/v1/competitor-scan-salon',
+    headers := jsonb_build_object(
+      'Content-Type', 'application/json',
+      'Authorization', 'Bearer ' || (select decrypted_secret from vault.decrypted_secrets where name = 'digest_cron_anon_key'),
+      'x-app-secret', (select decrypted_secret from vault.decrypted_secrets where name = 'shopify_sync_cron_shared_secret')
+    ),
+    body := '{}'::jsonb
+  ) as request_id;
+  $$
+);
+
+select cron.schedule(
+  'competitor-scan-product',
+  '45 4 * * *',
+  $$
+  select net.http_post(
+    url := 'https://yimtohrunyzkxdrlhhcr.supabase.co/functions/v1/competitor-scan-product',
+    headers := jsonb_build_object(
+      'Content-Type', 'application/json',
+      'Authorization', 'Bearer ' || (select decrypted_secret from vault.decrypted_secrets where name = 'digest_cron_anon_key'),
+      'x-app-secret', (select decrypted_secret from vault.decrypted_secrets where name = 'shopify_sync_cron_shared_secret')
+    ),
+    body := '{}'::jsonb
+  ) as request_id;
+  $$
+);
+
+-- =====================================================================
 -- MedLocks retail product line (added 5 Sep 2026)
 -- =====================================================================
 -- A genuinely separate business function from the salon-services domain
@@ -1236,6 +1278,131 @@ create policy "owner_manager_business_goal" on public.business_goal
   for all using (public.current_user_role() in ('owner', 'manager', 'admin'));
 create policy "owner_manager_shopify_line_items" on public.shopify_line_items
   for all using (public.current_user_role() in ('owner', 'manager', 'admin'));
+
+-- =====================================================================
+-- Competitor scanning (added 7 Sep 2026)
+-- =====================================================================
+-- Real request: "linked to outbound research... scanning competitors and
+-- idea prompting... look for anything new we don't do". Two genuinely
+-- separate domains sharing the same shape (a tracked entity + its scanned
+-- items), kept as separate table pairs rather than one polymorphic pair,
+-- since a salon's "service" and a product brand's "listing" have
+-- different real fields (a service has no stock level; a listing has no
+-- duration) and would need nullable-everything columns to force together.
+--
+-- Salon competitors: real salons near Medlocks (Wakefield WF1 2ED),
+-- researched 7 Sep 2026 via Fresha's own public listings. Fresha's salon
+-- pages are server-rendered with a `__NEXT_DATA__` JSON blob containing
+-- the real, structured service list at
+-- `props.pageProps.data.location.services[].items[]` (confirmed live —
+-- no login, no API key, no headless browser needed) — that's what
+-- `competitor-scan-salon` parses. `SophieGee Hairdressing` is in
+-- Pontefract (a separate town, ~8 miles out) — included deliberately as a
+-- specialist-treatment watch (real keratin/permanent-straightening
+-- expertise), not a footfall rival; everyone else is Wakefield proper.
+create table public.competitor_salons (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  fresha_url text not null,
+  address text not null,
+  -- 'fresha_json': the real bookable-venue page template, whose
+  -- `__NEXT_DATA__` blob has a real, structured `services[].items[]`
+  -- array — confirmed live 7 Sep 2026. 'manual': Fresha's lead-gen/
+  -- "unclaimed listing" template (`liteLocation`), confirmed to carry
+  -- name/address only, no real service or price data at any refresh
+  -- cadence — not a bug to work around, a genuine absence of data.
+  source_type text not null default 'fresha_json',
+  is_active boolean not null default true,
+  last_scanned_at timestamptz,
+  added_at timestamptz not null default now()
+);
+
+-- `gap_tag` is a real, explicit keyword classification (see
+-- `competitor-scan-salon`'s own `GAP_TAGS` constant for the exact
+-- keyword lists — deliberately simple substring matching, not fuzzy ML,
+-- so it stays auditable) — null means "core hairdressing", i.e. a
+-- service type Medlocks' own real Fresha history already has examples
+-- of, not worth flagging as a gap. `is_active` false means the service
+-- disappeared on a later scan (price/menu change), kept rather than
+-- deleted so the real history isn't lost.
+create table public.competitor_salon_services (
+  id uuid primary key default gen_random_uuid(),
+  competitor_id uuid not null references public.competitor_salons(id) on delete cascade,
+  service_name text not null,
+  gap_tag text,
+  price_gbp numeric(10,2),
+  rating numeric(2,1),
+  review_count integer,
+  is_active boolean not null default true,
+  first_seen_at timestamptz not null default now(),
+  last_seen_at timestamptz not null default now(),
+  unique (competitor_id, service_name)
+);
+
+create index idx_competitor_salon_services_tag on public.competitor_salon_services(gap_tag) where is_active;
+
+-- Product-line competitors (Glass Blonde's real rivals). Deliberately
+-- thin at launch: extensive real research (7 Sep 2026) found no
+-- genuinely peer-scale UK independent glass-hair/toning-serum brand —
+-- the closest real matches were PROVOKE (an established professional
+-- trade brand, sold via Boots/salons, not a true DTC peer) and Brondie
+-- Haircare (a real small hairdresser-founded toning brand, but
+-- Australian, priced in AUD, and shampoo/conditioner rather than a
+-- serum). Both are tracked honestly rather than force-fit: Brondie live
+-- (its Shopify store exposes a public `/products.json`, confirmed
+-- working, same technique as `shopify-sync`), PROVOKE as a manual note
+-- only (no clean structured endpoint found) until named real rivals
+-- replace or join them.
+create table public.competitor_products (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  source_type text not null default 'manual', -- 'shopify_products_json' | 'manual'
+  source_url text not null,
+  currency text not null default 'GBP',
+  is_active boolean not null default true,
+  last_scanned_at timestamptz,
+  added_at timestamptz not null default now()
+);
+
+create table public.competitor_product_listings (
+  id uuid primary key default gen_random_uuid(),
+  competitor_product_id uuid not null references public.competitor_products(id) on delete cascade,
+  title text not null,
+  price numeric(10,2),
+  in_stock boolean,
+  is_active boolean not null default true,
+  first_seen_at timestamptz not null default now(),
+  last_seen_at timestamptz not null default now(),
+  unique (competitor_product_id, title)
+);
+
+alter table public.competitor_salons enable row level security;
+alter table public.competitor_salon_services enable row level security;
+alter table public.competitor_products enable row level security;
+alter table public.competitor_product_listings enable row level security;
+
+create policy "owner_manager_competitor_salons" on public.competitor_salons
+  for all using (public.current_user_role() in ('owner', 'manager', 'admin'));
+create policy "owner_manager_competitor_salon_services" on public.competitor_salon_services
+  for all using (public.current_user_role() in ('owner', 'manager', 'admin'));
+create policy "owner_manager_competitor_products" on public.competitor_products
+  for all using (public.current_user_role() in ('owner', 'manager', 'admin'));
+create policy "owner_manager_competitor_product_listings" on public.competitor_product_listings
+  for all using (public.current_user_role() in ('owner', 'manager', 'admin'));
+
+insert into public.competitor_salons (name, fresha_url, address) values
+  ('Didi Krasniqi', 'https://www.fresha.com/a/didi-krasniqi-wakefield-uk-28-balne-lane-c6hualbm', '28 Balne Lane, Wakefield'),
+  ('Lillywhite & Co. Hair & Aesthetics', 'https://www.fresha.com/a/lillywhite-co-hair-aesthetics-wakefield-277-dewsbury-road-af9d7lnj', '277 Dewsbury Road, Lupset, Wakefield'),
+  ('Zest Hairdressing', 'https://www.fresha.com/a/zest-hairdressing-horbury-5-7-northgate-w284433y', '5-7 Northgate, Horbury'),
+  ('Gary Sunderland Hairdressing', 'https://www.fresha.com/a/gary-sunderland-hairdressing-wakefield-179-batley-road-ycux1ysr', '179 Batley Road, Alverthorpe, Wakefield'),
+  ('Dona''s Hair & Beauty Spa', 'https://www.fresha.com/a/donas-hair-beauty-spa-pontefract-building-1-baghill-lane-zu41nipl', 'Building 1, Baghill Lane, Pontefract (specialist watch, not a footfall rival)');
+
+insert into public.competitor_salons (name, fresha_url, address, source_type) values
+  ('SophieGee Hairdressing', 'https://www.fresha.com/lvp/sophiegee-hairdressing-love-lane-Mx2WoQ', '12 Love Lane, Pontefract (specialist watch, not a footfall rival — real keratin/permanent-straightening specialty confirmed by hand research 7 Sep 2026, not live-scanned: Fresha''s own unclaimed-listing template carries no service/price data)', 'manual');
+
+insert into public.competitor_products (name, source_type, source_url, currency) values
+  ('Brondie Haircare', 'shopify_products_json', 'https://brondie-haircare.myshopify.com', 'AUD'),
+  ('PROVOKE Purple Toning Serum', 'manual', 'https://provoke.co.uk/purple-toning-serum/', 'GBP');
 
 -- =====================================================================
 -- End of schema v1

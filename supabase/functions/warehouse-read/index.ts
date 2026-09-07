@@ -2176,6 +2176,156 @@ async function handleBusinessRiskInputs(): Promise<Response> {
   });
 }
 
+// Real, explicit substring keyword classification — intentionally
+// duplicated from `competitor-scan-salon`'s own `GAP_TAGS` (see that
+// function's comment for why: "no shared code between Edge Functions").
+// Applied here to Medlocks' own real service names too, so "what we
+// don't do" is computed fresh from real Fresha history every call rather
+// than a frozen assumption baked in once — if Medlocks ever genuinely
+// starts offering, say, nails, this stops flagging it with zero code
+// changes needed.
+const GAP_TAGS: Array<{ tag: string; keywords: string[] }> = [
+  { tag: 'keratin_smoothing', keywords: ['keratin', 'brazilian', 'permanent straightening', 'bioplastica', 'hair botox', 'smoothing treatment'] },
+  { tag: 'mens_grooming', keywords: ['gents', "gent's", 'gentlemen', "men's", 'mens', 'skin fade', 'beard', 'hot towel', 'boys cut', 'boy cut', 'crop all over', 'hair pattern'] },
+  { tag: 'childrens', keywords: ['girls cut', 'girls trim', 'kids', 'child', 'junior'] },
+  { tag: 'waxing', keywords: ['waxing', ' wax', 'bikini'] },
+  { tag: 'nails', keywords: ['manicure', 'pedicure', 'nail', 'acrylic', 'acrygel', 'biab', 'gel polish'] },
+  { tag: 'brows_lashes', keywords: ['brow', 'lash'] },
+  { tag: 'facials_aesthetics', keywords: ['facial', 'dermaplaning', 'microneedling', 'anti-wrinkle', 'chemical peel', 'skin booster', 'fat dissolving', 'filler', 'botox'] },
+  { tag: 'makeup', keywords: ['make up', 'make-up', 'makeup'] },
+];
+
+function classifyGapTag(serviceName: string): string | null {
+  const lower = serviceName.toLowerCase();
+  for (const { tag, keywords } of GAP_TAGS) {
+    if (keywords.some((kw) => lower.includes(kw))) return tag;
+  }
+  return null;
+}
+
+/**
+ * Real, live-computed "what we don't do" feed (added 7 Sep 2026, per
+ * direct request: "scanning competitors and idea prompting... look for
+ * anything new we don't do"). A gap tag is only ever surfaced here if
+ * BOTH real conditions hold: at least one actively-scanned competitor
+ * offers it, AND zero of Medlocks' own real completed-or-scheduled
+ * Fresha service names classify into that tag — computed fresh every
+ * call against `fresha_appointments`, not a hardcoded "things Medlocks
+ * doesn't do" list that could go stale the day that changes.
+ */
+async function handleCompetitorSalonGaps(): Promise<Response> {
+  const [{ data: ownServices, error: ownError }, { data: competitorRows, error: competitorError }] = await Promise.all([
+    supabase.from('fresha_appointments').select('service'),
+    supabase
+      .from('competitor_salon_services')
+      .select('service_name, gap_tag, price_gbp, rating, review_count, competitor_id, competitor_salons(name, address)')
+      .eq('is_active', true)
+      .not('gap_tag', 'is', null),
+  ]);
+  if (ownError) return jsonResponse({ ok: false, error: ownError.message }, 500);
+  if (competitorError) return jsonResponse({ ok: false, error: competitorError.message }, 500);
+
+  const ownTags = new Set<string>();
+  for (const row of ownServices ?? []) {
+    const tag = classifyGapTag((row as { service: string }).service ?? '');
+    if (tag) ownTags.add(tag);
+  }
+
+  type CompetitorServiceRow = {
+    service_name: string;
+    gap_tag: string;
+    price_gbp: number | null;
+    rating: number | null;
+    review_count: number | null;
+    competitor_id: string;
+    competitor_salons: { name: string; address: string } | null;
+  };
+
+  const byTag = new Map<
+    string,
+    { tag: string; competitorIds: Set<string>; examples: Array<{ competitorName: string; serviceName: string; priceGbp: number | null; rating: number | null; reviewCount: number | null }> }
+  >();
+
+  for (const row of (competitorRows ?? []) as unknown as CompetitorServiceRow[]) {
+    if (ownTags.has(row.gap_tag)) continue; // real coverage already exists — not a gap
+    if (!byTag.has(row.gap_tag)) byTag.set(row.gap_tag, { tag: row.gap_tag, competitorIds: new Set(), examples: [] });
+    const entry = byTag.get(row.gap_tag)!;
+    entry.competitorIds.add(row.competitor_id);
+    entry.examples.push({
+      competitorName: row.competitor_salons?.name ?? 'Unknown',
+      serviceName: row.service_name,
+      priceGbp: row.price_gbp !== null ? Number(row.price_gbp) : null,
+      rating: row.rating !== null ? Number(row.rating) : null,
+      reviewCount: row.review_count,
+    });
+  }
+
+  const { data: scanStatus } = await supabase.from('competitor_salons').select('name, source_type, last_scanned_at, is_active').order('name');
+
+  return jsonResponse({
+    ok: true,
+    gaps: Array.from(byTag.values())
+      .map((g) => ({
+        tag: g.tag,
+        competitorCount: g.competitorIds.size,
+        examples: g.examples.slice(0, 6),
+      }))
+      .sort((a, b) => b.competitorCount - a.competitorCount),
+    competitors: (scanStatus ?? []).map((c) => ({
+      name: c.name as string,
+      isLiveScanned: c.source_type === 'fresha_json',
+      lastScannedAt: c.last_scanned_at as string | null,
+      isActive: c.is_active as boolean,
+    })),
+  });
+}
+
+/**
+ * Real product-line competitor price/stock feed (added 7 Sep 2026).
+ * Currency is each store's own real currency — never converted here, so
+ * a non-GBP listing (Brondie is AUD) must be read as its own real
+ * number, not silently treated as GBP.
+ */
+async function handleCompetitorProductListings(): Promise<Response> {
+  const { data, error } = await supabase
+    .from('competitor_product_listings')
+    .select('title, price, in_stock, last_seen_at, competitor_products(name, currency, source_type, source_url, last_scanned_at)')
+    .eq('is_active', true)
+    .order('title');
+  if (error) return jsonResponse({ ok: false, error: error.message }, 500);
+
+  const { data: manualOnly } = await supabase
+    .from('competitor_products')
+    .select('name, currency, source_type, source_url, last_scanned_at')
+    .eq('source_type', 'manual')
+    .eq('is_active', true);
+
+  type ListingRow = {
+    title: string;
+    price: number | null;
+    in_stock: boolean | null;
+    last_seen_at: string;
+    competitor_products: { name: string; currency: string; source_type: string; source_url: string; last_scanned_at: string | null } | null;
+  };
+
+  return jsonResponse({
+    ok: true,
+    listings: ((data ?? []) as unknown as ListingRow[]).map((row) => ({
+      brandName: row.competitor_products?.name ?? 'Unknown',
+      title: row.title,
+      price: row.price !== null ? Number(row.price) : null,
+      currency: row.competitor_products?.currency ?? 'GBP',
+      inStock: row.in_stock,
+      lastSeenAt: row.last_seen_at,
+    })),
+    manualReferences: (manualOnly ?? []).map((r) => ({
+      brandName: r.name as string,
+      sourceUrl: r.source_url as string,
+      note: 'No live feed found for this brand — tracked as a manual reference only.',
+    })),
+  });
+}
+
 interface RequestBody {
   query:
     | 'blended_cac_30d'
@@ -2199,7 +2349,9 @@ interface RequestBody {
     | 'industry_benchmarks_list'
     | 'retail_sku_costs'
     | 'business_risk_inputs'
-    | 'debt_decisions_list';
+    | 'debt_decisions_list'
+    | 'competitor_salon_gaps'
+    | 'competitor_product_listings';
   retailTypeNames?: string[];
   clientName?: string;
   periods?: unknown;
@@ -2272,6 +2424,10 @@ Deno.serve(async (req) => {
       return handleBusinessRiskInputs();
     case 'debt_decisions_list':
       return handleDebtDecisionsList();
+    case 'competitor_salon_gaps':
+      return handleCompetitorSalonGaps();
+    case 'competitor_product_listings':
+      return handleCompetitorProductListings();
     default:
       return jsonResponse({ ok: false, error: 'Unknown query' }, 400);
   }

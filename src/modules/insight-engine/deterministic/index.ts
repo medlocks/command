@@ -24,6 +24,7 @@ export * from './businessRisk';
 export * from './debtDecision';
 export * from './financialBenchmarks';
 export * from './valuationGoal';
+export * from './competitorGaps';
 
 // TODO(Section 5.10 — SEO & Local Search Insights): three pieces of the
 // spec are deliberately NOT implemented yet, deferred by explicit scope

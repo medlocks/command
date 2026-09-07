@@ -633,3 +633,63 @@ export function fetchDebtDecisionsList(): Promise<DebtDecisionsListResult> {
 export function fetchBusinessRiskInputs(): Promise<BusinessRiskInputsResult> {
   return callFunction({ query: 'business_risk_inputs' });
 }
+
+export interface CompetitorGapExample {
+  competitorName: string;
+  serviceName: string;
+  priceGbp: number | null;
+  rating: number | null;
+  reviewCount: number | null;
+}
+
+export interface CompetitorGap {
+  tag: string;
+  competitorCount: number;
+  examples: CompetitorGapExample[];
+}
+
+export interface CompetitorSalonStatus {
+  name: string;
+  isLiveScanned: boolean;
+  lastScannedAt: string | null;
+  isActive: boolean;
+}
+
+export interface CompetitorSalonGapsResult {
+  ok: boolean;
+  gaps?: CompetitorGap[];
+  competitors?: CompetitorSalonStatus[];
+  error?: string;
+}
+
+/** Real, live-computed "what we don't do" feed (added 7 Sep 2026) — see `handleCompetitorSalonGaps`'s own comment for how a tag only ever appears here if real competitor data supports it AND Medlocks' own real Fresha history has zero examples. */
+export function fetchCompetitorSalonGaps(): Promise<CompetitorSalonGapsResult> {
+  return callFunction({ query: 'competitor_salon_gaps' });
+}
+
+export interface CompetitorProductListing {
+  brandName: string;
+  title: string;
+  price: number | null;
+  currency: string;
+  inStock: boolean | null;
+  lastSeenAt: string;
+}
+
+export interface CompetitorProductManualReference {
+  brandName: string;
+  sourceUrl: string;
+  note: string;
+}
+
+export interface CompetitorProductListingsResult {
+  ok: boolean;
+  listings?: CompetitorProductListing[];
+  manualReferences?: CompetitorProductManualReference[];
+  error?: string;
+}
+
+/** Real product-line competitor price/stock feed (added 7 Sep 2026) — currency is each store's own real currency, never converted. */
+export function fetchCompetitorProductListings(): Promise<CompetitorProductListingsResult> {
+  return callFunction({ query: 'competitor_product_listings' });
+}
