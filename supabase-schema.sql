@@ -958,6 +958,33 @@ select cron.schedule(
 );
 
 -- =====================================================================
+-- Shopify sync schedule (added 7 Sep 2026)
+-- =====================================================================
+-- Runs the `shopify-sync` Edge Function once a day, 30 minutes before the
+-- digest, so real order data stays fresh without a manual "sync now" tap
+-- being the only way to update it. Same vault-secret pattern as the
+-- digest above — `shopify_sync_cron_shared_secret` was created once via
+-- `vault.create_secret`, run directly against the live database, never
+-- checked into git; reuses the existing `digest_cron_anon_key` vault
+-- secret for the anon-key bearer token since that value isn't
+-- digest-specific.
+select cron.schedule(
+  'shopify-sync',
+  '30 5 * * *',
+  $$
+  select net.http_post(
+    url := 'https://yimtohrunyzkxdrlhhcr.supabase.co/functions/v1/shopify-sync',
+    headers := jsonb_build_object(
+      'Content-Type', 'application/json',
+      'Authorization', 'Bearer ' || (select decrypted_secret from vault.decrypted_secrets where name = 'digest_cron_anon_key'),
+      'x-app-secret', (select decrypted_secret from vault.decrypted_secrets where name = 'shopify_sync_cron_shared_secret')
+    ),
+    body := '{}'::jsonb
+  ) as request_id;
+  $$
+);
+
+-- =====================================================================
 -- MedLocks retail product line (added 5 Sep 2026)
 -- =====================================================================
 -- A genuinely separate business function from the salon-services domain
