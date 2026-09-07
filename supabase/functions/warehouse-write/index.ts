@@ -1358,6 +1358,8 @@ interface RetailSkuPayload {
   weeklyCapacityUnits?: number | null;
   /** Free-text note on what happens past the weekly ceiling, in the owner's own words (e.g. "can go full-time and scale into the 1000s/week") rather than a fabricated second capacity number. */
   capacityScaleNote?: string | null;
+  /** The EXACT real product title as listed on Shopify (added 7 Sep 2026) — an explicit owner-set mapping, not fuzzy string matching, since real order history can include old/discontinued products under similar names. Null until actually listed for sale. */
+  shopifyProductTitle?: string | null;
 }
 
 async function handleRetailSkuCommit(payload: unknown): Promise<Response> {
@@ -1386,6 +1388,7 @@ async function handleRetailSkuCommit(payload: unknown): Promise<Response> {
   if (p.wholesaleDiscountPct !== undefined && p.wholesaleDiscountPct !== null) insertRow.wholesale_discount_pct = p.wholesaleDiscountPct;
   if (p.weeklyCapacityUnits !== undefined) insertRow.weekly_capacity_units = p.weeklyCapacityUnits;
   if (p.capacityScaleNote !== undefined) insertRow.capacity_scale_note = p.capacityScaleNote;
+  if (p.shopifyProductTitle !== undefined) insertRow.shopify_product_title = p.shopifyProductTitle;
 
   const { data, error } = await supabase.from('retail_skus').insert(insertRow).select('id').single();
   if (error) return jsonResponse({ ok: false, error: error.message }, 500);
@@ -1426,6 +1429,7 @@ async function handleRetailSkuUpdate(payload: unknown): Promise<Response> {
     fields.weekly_capacity_units = p.weeklyCapacityUnits;
   }
   if (p.capacityScaleNote !== undefined) fields.capacity_scale_note = p.capacityScaleNote;
+  if (p.shopifyProductTitle !== undefined) fields.shopify_product_title = p.shopifyProductTitle;
   if (p.isActive !== undefined) fields.is_active = p.isActive;
   if (Object.keys(fields).length === 0) return jsonResponse({ ok: false, error: 'Nothing to update' }, 400);
   fields.updated_at = new Date().toISOString();

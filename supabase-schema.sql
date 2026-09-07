@@ -1015,6 +1015,14 @@ create table public.retail_skus (
   -- ceiling to compute against.
   weekly_capacity_units integer,
   capacity_scale_note text,
+  -- Added 7 Sep 2026 — the EXACT real product title as it will appear on
+  -- Shopify, an explicit owner-set mapping rather than fuzzy string
+  -- matching. Necessary because this store's real order history includes
+  -- an old, discontinued white-label product ("Medlocks Argan Oil Hair
+  -- Serum 60ml") that must never be counted as this SKU's real DTC
+  -- traction — confirmed by the owner 7 Sep 2026. Null until the product
+  -- is actually listed for sale.
+  shopify_product_title text,
   is_active boolean not null default true,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()

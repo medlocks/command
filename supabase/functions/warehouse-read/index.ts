@@ -1642,6 +1642,8 @@ async function handleRecommendationsCurrent(): Promise<Response> {
  * fees) — not a claim that 50% is universally correct for every deal.
  */
 const WHOLESALE_HEALTHY_MARGIN_PCT = 0.5;
+/** Stated assumption (added 7 Sep 2026, not sourced) — a real minimum number of distinct real orders before online sales count as "proven demand" rather than a single fluke or a friends-and-family purchase. */
+const MIN_ORDERS_TO_PROVE_DTC_TRACTION = 3;
 
 function currencyRound(value: number): string {
   return `£${value.toFixed(2)}`;
@@ -1655,16 +1657,18 @@ async function handleRetailSkuCosts(): Promise<Response> {
     { data: complianceRows, error: complianceError },
     { data: tierRows, error: tierError },
     { data: batchRows, error: batchError },
+    { data: shopifyLineItems, error: shopifyError },
   ] = await Promise.all([
     supabase
       .from('retail_skus')
-      .select('id, name, description, in_salon_price, online_price, shipping_packaging_cost, wholesale_discount_pct, weekly_capacity_units, capacity_scale_note, is_active')
+      .select('id, name, description, in_salon_price, online_price, shipping_packaging_cost, wholesale_discount_pct, weekly_capacity_units, capacity_scale_note, shopify_product_title, is_active')
       .order('name'),
     supabase.from('retail_ingredients').select('id, name, purchase_price, purchase_quantity, unit, notes').order('name'),
     supabase.from('retail_recipe_items').select('id, sku_id, ingredient_id, quantity_used'),
     supabase.from('retail_compliance_steps').select('sku_id, step_key, completed_at, notes'),
     supabase.from('retail_ingredient_price_tiers').select('ingredient_id, purchase_price, purchase_quantity, unit'),
     supabase.from('retail_production_batches').select('id, sku_id, batch_number, produced_date, quantity_made, notes').order('produced_date', { ascending: false }),
+    supabase.from('shopify_line_items').select('shopify_order_id, title, order_created_at'),
   ]);
   if (skusError) return jsonResponse({ ok: false, error: skusError.message }, 500);
   if (ingredientsError) return jsonResponse({ ok: false, error: ingredientsError.message }, 500);
@@ -1672,6 +1676,7 @@ async function handleRetailSkuCosts(): Promise<Response> {
   if (complianceError) return jsonResponse({ ok: false, error: complianceError.message }, 500);
   if (tierError) return jsonResponse({ ok: false, error: tierError.message }, 500);
   if (batchError) return jsonResponse({ ok: false, error: batchError.message }, 500);
+  if (shopifyError) return jsonResponse({ ok: false, error: shopifyError.message }, 500);
 
   const ingredientById = new Map((ingredients ?? []).map((i) => [i.id, i]));
   const tiersByIngredient = new Map<string, { purchase_price: number; purchase_quantity: number; unit: string }[]>();
@@ -1758,14 +1763,25 @@ async function handleRetailSkuCosts(): Promise<Response> {
     const isMarginReady = wholesaleMarginPct !== null ? wholesaleMarginPct >= WHOLESALE_HEALTHY_MARGIN_PCT : null;
 
     // Real DTC sales traction is the other genuine gate before approaching
-    // a retail stockist (added 5 Sep 2026, per direct correction: a
-    // healthy margin alone doesn't prove a retailer *should* stock this —
-    // you need your own proven demand first, same logic as any retail
-    // buyer would apply). No real sales-velocity data source exists yet
-    // (the online store isn't connected — see the Shopify-sync gap
-    // documented elsewhere), so this stays honestly unmeasured rather
-    // than silently assumed satisfied just because margin looks good.
-    const hasProvenDtcTraction: boolean | null = null;
+    // a retail stockist (added 5 Sep 2026, made real 7 Sep 2026 once
+    // Shopify was connected). Matched against this SKU's own EXPLICIT
+    // `shopify_product_title` — deliberately never fuzzy-matched against
+    // `sku.name` — because this store's real order history includes an
+    // old, discontinued white-label product under a similar-sounding name
+    // ("Medlocks Argan Oil Hair Serum") that must never count toward a
+    // different product's real traction (confirmed by the owner 7 Sep
+    // 2026). Null (unmeasurable) until the product is actually listed for
+    // sale and that title is set; once listed, a stated minimum real
+    // order count decides whether traction counts as "proven."
+    const shopifyProductTitle = sku.shopify_product_title as string | null;
+    const realDtcOrderCount = shopifyProductTitle
+      ? new Set(
+          (shopifyLineItems ?? [])
+            .filter((li) => li.title.toLowerCase() === shopifyProductTitle.toLowerCase())
+            .map((li) => li.shopify_order_id),
+        ).size
+      : null;
+    const hasProvenDtcTraction: boolean | null = realDtcOrderCount === null ? null : realDtcOrderCount >= MIN_ORDERS_TO_PROVE_DTC_TRACTION;
 
     const isWholesaleReady: boolean | null = isMarginReady === true ? hasProvenDtcTraction : isMarginReady;
 
@@ -1778,11 +1794,11 @@ async function handleRetailSkuCosts(): Promise<Response> {
       const requiredOnlinePrice = Math.round(((productionCostPerUnit / (1 - WHOLESALE_HEALTHY_MARGIN_PCT)) / (1 - wholesaleDiscountPct)) * 100) / 100;
       wholesaleNextStep = `Margin isn't wholesale-healthy yet at this ${Math.round(wholesaleDiscountPct * 100)}% discount — production cost would need to drop by roughly ${currencyRound(Math.max(costGap, 0))}, or the online price would need to rise to about ${currencyRound(requiredOnlinePrice)}, to clear a healthy ${Math.round(WHOLESALE_HEALTHY_MARGIN_PCT * 100)}% wholesale margin.`;
     } else if (hasProvenDtcTraction === null) {
-      wholesaleNextStep = `Margin's healthy at this ${Math.round(wholesaleDiscountPct * 100)}% discount — a partner buying at ${currencyRound(wholesaleUnitPrice)} would still leave ${Math.round((wholesaleMarginPct ?? 0) * 100)}%. But margin alone isn't enough to approach a retail stockist: build a real sales history through your own DTC channel first, so you're walking in with proof of demand, not just a spreadsheet. (This app can't measure that yet — it needs your online sales data connected.)`;
+      wholesaleNextStep = `Margin's healthy at this ${Math.round(wholesaleDiscountPct * 100)}% discount — a partner buying at ${currencyRound(wholesaleUnitPrice)} would still leave ${Math.round((wholesaleMarginPct ?? 0) * 100)}%. But margin alone isn't enough to approach a retail stockist: build a real sales history through your own DTC channel first, so you're walking in with proof of demand, not just a spreadsheet. (Not measurable yet — this product isn't listed on Shopify under a known title. Set its real Shopify product title on this SKU once it's live.)`;
     } else if (hasProvenDtcTraction) {
-      wholesaleNextStep = `Wholesale-ready — margin is healthy (${Math.round((wholesaleMarginPct ?? 0) * 100)}%) and your own DTC sales show real proven demand.`;
+      wholesaleNextStep = `Wholesale-ready — margin is healthy (${Math.round((wholesaleMarginPct ?? 0) * 100)}%) and ${realDtcOrderCount} real DTC orders show proven demand.`;
     } else {
-      wholesaleNextStep = `Margin's healthy, but your DTC sales history isn't there yet to prove demand to a stockist — keep selling direct first.`;
+      wholesaleNextStep = `Margin's healthy, but real DTC sales aren't there yet to prove demand to a stockist — ${realDtcOrderCount ?? 0} real order${realDtcOrderCount === 1 ? '' : 's'} so far, ${MIN_ORDERS_TO_PROVE_DTC_TRACTION} needed. Keep selling direct first.`;
     }
 
     // Production capacity (added 5 Sep 2026) — a real, owner-supplied
@@ -1836,6 +1852,8 @@ async function handleRetailSkuCosts(): Promise<Response> {
       wholesaleMarginPct,
       isMarginReady,
       hasProvenDtcTraction,
+      realDtcOrderCount,
+      shopifyProductTitle,
       isWholesaleReady,
       wholesaleNextStep,
       weeklyCapacityUnits,

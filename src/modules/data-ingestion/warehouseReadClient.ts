@@ -534,8 +534,12 @@ export interface RetailSkuCost {
   wholesaleMarginPct: number | null;
   /** Margin health alone (added 5 Sep 2026) — necessary but not sufficient for isWholesaleReady. */
   isMarginReady: boolean | null;
-  /** Real proven DTC sales traction (added 5 Sep 2026) — the other genuine gate before approaching a retail stockist. Always null today: no real sales-velocity data source (Shopify sync) exists yet, so this is honestly unmeasured rather than assumed. */
+  /** Real proven DTC sales traction (added 5 Sep 2026, made real 7 Sep 2026 via Shopify sync) — the other genuine gate before approaching a retail stockist. Null until `shopifyProductTitle` is set (product actually listed for sale). */
   hasProvenDtcTraction: boolean | null;
+  /** Real distinct order count matching `shopifyProductTitle` (added 7 Sep 2026) — null until that title is set. */
+  realDtcOrderCount: number | null;
+  /** The exact real product title as listed on Shopify, set by the owner once the product actually goes live (added 7 Sep 2026). Null until then — never fuzzy-matched against the SKU's own name, since real order history can include old/discontinued products under similar names. */
+  shopifyProductTitle: string | null;
   /** True only when both isMarginReady and hasProvenDtcTraction are true. */
   isWholesaleReady: boolean | null;
   wholesaleNextStep: string;

@@ -312,10 +312,13 @@ function RecipeBuilder({ sku, ingredients, onChanged }: { sku: RetailSkuCost; in
 function WholesaleReadiness({ sku, onChanged }: { sku: RetailSkuCost; onChanged: () => void }) {
   const [discountPct, setDiscountPct] = useState(String(Math.round(sku.wholesaleDiscountPct * 100)));
   const [isSaving, setIsSaving] = useState(false);
+  const [shopifyTitle, setShopifyTitle] = useState(sku.shopifyProductTitle ?? '');
+  const [isSavingTitle, setIsSavingTitle] = useState(false);
 
   const isDirty = Number(discountPct) !== Math.round(sku.wholesaleDiscountPct * 100);
   const discountNum = Number(discountPct);
   const canSave = discountPct !== '' && Number.isFinite(discountNum) && discountNum >= 0 && discountNum < 100;
+  const isTitleDirty = shopifyTitle.trim() !== (sku.shopifyProductTitle ?? '');
 
   async function handleSave() {
     if (!canSave) return;
@@ -325,6 +328,16 @@ function WholesaleReadiness({ sku, onChanged }: { sku: RetailSkuCost; onChanged:
       if (res.ok) onChanged();
     } finally {
       setIsSaving(false);
+    }
+  }
+
+  async function handleSaveTitle() {
+    setIsSavingTitle(true);
+    try {
+      const res = await updateRetailSku({ id: sku.skuId, shopifyProductTitle: shopifyTitle.trim() || null });
+      if (res.ok) onChanged();
+    } finally {
+      setIsSavingTitle(false);
     }
   }
 
@@ -382,6 +395,28 @@ function WholesaleReadiness({ sku, onChanged }: { sku: RetailSkuCost; onChanged:
         )}
       </div>
       <p className="mt-2 text-sm text-[var(--color-ink)]">{sku.wholesaleNextStep}</p>
+
+      <div className="mt-3 flex items-end gap-2">
+        <div className="flex-1">
+          <label className="mb-1 block text-xs font-medium text-[var(--color-ink-muted)]">
+            Real Shopify product title {sku.realDtcOrderCount !== null && `(${sku.realDtcOrderCount} real order${sku.realDtcOrderCount === 1 ? '' : 's'} matched)`}
+          </label>
+          <input
+            value={shopifyTitle}
+            onChange={(event) => setShopifyTitle(event.target.value)}
+            placeholder="Exact title once listed on Shopify — leave blank until then"
+            className={INPUT_CLASSES}
+          />
+        </div>
+        {isTitleDirty && (
+          <Button type="button" variant="secondary" className="!px-3 !py-2 text-xs" disabled={isSavingTitle} onClick={() => void handleSaveTitle()}>
+            {isSavingTitle ? 'Saving…' : 'Save'}
+          </Button>
+        )}
+      </div>
+      <p className="mt-1 text-[11px] text-[var(--color-ink-muted)]">
+        Must match exactly — never guessed, since real order history can include old/discontinued products under similar names.
+      </p>
     </div>
   );
 }

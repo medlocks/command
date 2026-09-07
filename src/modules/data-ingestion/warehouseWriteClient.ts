@@ -334,6 +334,8 @@ export function commitRetailSku(payload: {
   weeklyCapacityUnits?: number | null;
   /** Free-text note on what happens past the weekly ceiling, in the owner's own words. */
   capacityScaleNote?: string | null;
+  /** The exact real product title as listed on Shopify (added 7 Sep 2026) — set once the product actually goes live, never guessed. */
+  shopifyProductTitle?: string | null;
 }): Promise<WarehouseWriteResult> {
   return callFunction({ entity: 'retail_skus', action: 'commit', payload });
 }
@@ -400,6 +402,7 @@ export function updateRetailSku(payload: {
   wholesaleDiscountPct?: number | null;
   weeklyCapacityUnits?: number | null;
   capacityScaleNote?: string | null;
+  shopifyProductTitle?: string | null;
   isActive?: boolean;
 }): Promise<WarehouseWriteResult> {
   return callFunction({ entity: 'retail_skus', action: 'update', payload });
