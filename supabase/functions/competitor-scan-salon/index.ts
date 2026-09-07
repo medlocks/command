@@ -238,21 +238,29 @@ Deno.serve(async (req) => {
             .not('service_name', 'in', `(${seenNames.map((n) => `"${n.replace(/"/g, '\\"')}"`).join(',')})`);
         }
 
+        // A competitor scanned for the very first time has no real
+        // "before" state — every service would otherwise log as a false
+        // 'new_service' change, flooding the feed with onboarding noise
+        // rather than real market movement (caught live, 7 Sep 2026,
+        // adding 10 more salons: 391 fake "new service" rows).
+        const isFirstScan = existingByName.size === 0;
         const changeRows: Array<{ competitor_id: string; change_type: string; service_name: string; old_price_gbp: number | null; new_price_gbp: number | null }> = [];
-        for (const row of rows) {
-          if (!existingByName.has(row.service_name)) {
-            changeRows.push({ competitor_id: competitor.id, change_type: 'new_service', service_name: row.service_name, old_price_gbp: null, new_price_gbp: row.price_gbp });
-          } else {
-            const oldPrice = existingByName.get(row.service_name)!;
-            if (oldPrice !== null && row.price_gbp !== null && oldPrice !== row.price_gbp) {
-              changeRows.push({ competitor_id: competitor.id, change_type: 'price_change', service_name: row.service_name, old_price_gbp: oldPrice, new_price_gbp: row.price_gbp });
+        if (!isFirstScan) {
+          for (const row of rows) {
+            if (!existingByName.has(row.service_name)) {
+              changeRows.push({ competitor_id: competitor.id, change_type: 'new_service', service_name: row.service_name, old_price_gbp: null, new_price_gbp: row.price_gbp });
+            } else {
+              const oldPrice = existingByName.get(row.service_name)!;
+              if (oldPrice !== null && row.price_gbp !== null && oldPrice !== row.price_gbp) {
+                changeRows.push({ competitor_id: competitor.id, change_type: 'price_change', service_name: row.service_name, old_price_gbp: oldPrice, new_price_gbp: row.price_gbp });
+              }
             }
           }
-        }
-        const seenNameSet = new Set(rows.map((r) => r.service_name));
-        for (const [name, price] of existingByName) {
-          if (!seenNameSet.has(name)) {
-            changeRows.push({ competitor_id: competitor.id, change_type: 'service_removed', service_name: name, old_price_gbp: price, new_price_gbp: null });
+          const seenNameSet = new Set(rows.map((r) => r.service_name));
+          for (const [name, price] of existingByName) {
+            if (!seenNameSet.has(name)) {
+              changeRows.push({ competitor_id: competitor.id, change_type: 'service_removed', service_name: name, old_price_gbp: price, new_price_gbp: null });
+            }
           }
         }
         if (changeRows.length > 0) {

@@ -1448,6 +1448,31 @@ insert into public.competitor_salons (name, fresha_url, address, source_type) va
   ('Scott Banks Hairdressing', 'https://www.scottbanks.co.uk/', '9 The Bull Ring, Wakefield WF1 1HB (established luxury salon, large team incl. men''s services — manual reference only, site returns HTTP 403 to automated fetches)', 'manual'),
   ('En Route Hair & Beauty', 'https://enroute.uk.com/services/hair-services/', '19 School Lane, Walton, Wakefield WF2 6PQ (award-winning, sustainability-focused, real hair-loss/thinning-hair specialist service — manual reference only, no itemized real price list published)', 'manual');
 
+-- Real expansion to 15 live-scanned salons (added 7 Sep 2026, per direct
+-- request: "analyse... 10 more instead of just 5") — same real Fresha
+-- ranked-listing research as the original 5, each confirmed individually
+-- (real `__NEXT_DATA__` service/review data, not the lead-gen template)
+-- before being added. Several are in Pontefract, Normanton, Ryhill,
+-- Featherstone or Newmillerdam — real places, genuinely a bit further out
+-- than Wakefield-proper, included as real market context (some, like
+-- Head Hunters Salon Pontefract, are large enough — 4,300+ real reviews —
+-- to be worth watching regardless of exact distance) rather than strict
+-- footfall rivals. Craig Banks Hair and Luxe Hair Boutique share a real
+-- physical address (23 Gillygate, Pontefract) — genuinely two separate
+-- real bookable listings (an independent chair-renter alongside the
+-- salon), not a duplicate.
+insert into public.competitor_salons (name, fresha_url, address) values
+  ('Head Hunters Salon Pontefract', 'https://www.fresha.com/a/head-hunters-salon-pontefract-pontefract-35-market-place-zmf10xw2', '35 Market Place, Pontefract (real 4,300+ reviews — large regional player, not a footfall rival)'),
+  ('Maison de Beaute', 'https://www.fresha.com/a/maison-de-beaute-pontefract-uk-woolmarket-jzwoqcg3', 'Woolmarket, Pontefract'),
+  ('Lisa Brown Hair Studio', 'https://www.fresha.com/a/lisa-brown-hair-studio-featherstone-unit-7-lrs-business-park-xttuobfn', 'Unit 7 LRS Business Park, Purston, Featherstone'),
+  ('Zoe Louise Hair & Beauty', 'https://www.fresha.com/a/zoe-louise-hair-beauty-ryhill-wakefield-uk-chapel-street-pf1j5sd4', 'Chapel Street, Ryhill, Wakefield'),
+  ('SALON 15', 'https://www.fresha.com/a/salon-15-normanton-177-wakefield-road-tnj178yk', '177 Wakefield Road, Normanton'),
+  ('Craig Banks Hair', 'https://www.fresha.com/a/craig-banks-hair-pontefract-luxe-hair-boutique-uk-23-gillygate-ty9uhbya', '23 Gillygate, Pontefract (independent chair-renter at Luxe Hair Boutique)'),
+  ('Luxe Hair Boutique', 'https://www.fresha.com/a/luxe-hair-boutique-pontefract-23-gillygate-oasyyg4n', '23 Gillygate, Pontefract'),
+  ('OCHO Hair & Beauty', 'https://www.fresha.com/a/ocho-hair-beauty-pontefract-8-ropergate-yhm5t3ex', '8 Ropergate, Pontefract'),
+  ('Holly Blackburn Hair', 'https://www.fresha.com/a/holly-blackburn-hair-wakefield-the-coachouse-659-barnsley-road-pwrawrg5', 'The Coachouse, 659 Barnsley Road, Newmillerdam, Wakefield'),
+  ('Blend Hair and Beauty', 'https://www.fresha.com/a/blend-hair-and-beauty-wakefield-25-sparable-lane-ml6yvnc1', '25 Sparable Lane, Wakefield (home-based salon)');
+
 insert into public.competitor_products (name, source_type, source_url, currency) values
   ('Brondie Haircare', 'shopify_products_json', 'https://brondie-haircare.myshopify.com', 'AUD'),
   ('PROVOKE Purple Toning Serum', 'manual', 'https://provoke.co.uk/purple-toning-serum/', 'GBP');
