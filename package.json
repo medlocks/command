@@ -1,6 +1,6 @@
 {
   "name": "salon-ai",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Salon AI Command Centre — management intelligence layer for salon operations and marketing.",
   "private": true,
   "type": "module",
