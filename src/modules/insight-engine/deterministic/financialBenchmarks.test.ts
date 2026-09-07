@@ -5,6 +5,7 @@ const healthyInput: FinancialBenchmarksInputs = {
   revenue30d: 10000,
   wageCost30d: 4500, // 45%
   productCost30d: 1000, // 10%
+  adSpend30d: 500, // 5%
   overhead: { monthlyRent: 1200, monthlyInsurance: 100, monthlyLoanRepayments: 0, monthlyOtherFixedCosts: 100, cashReserves: 5000 }, // rent 12%
 };
 
@@ -39,12 +40,26 @@ describe('buildFinancialBenchmarks', () => {
     expect(result.factors.find((f) => f.id === 'product-cost')?.status).toBe('high');
   });
 
-  it('computes total operating costs across wages, product, and every real overhead line', () => {
-    // 4500 + 1000 + 1200 + 100 + 0 + 100 = 6900 / 10000 = 69% -> healthy
+  it('computes total operating costs across wages, product, ad spend, and every real overhead line', () => {
+    // 4500 + 1000 + 500 + 1200 + 100 + 0 + 100 = 7400 / 10000 = 74% -> healthy
     const result = buildFinancialBenchmarks(healthyInput);
     const total = result.factors.find((f) => f.id === 'total-costs');
-    expect(total?.actualPct).toBeCloseTo(0.69, 2);
+    expect(total?.actualPct).toBeCloseTo(0.74, 2);
     expect(total?.status).toBe('healthy');
+  });
+
+  it('reads real ad spend against the 3-7% benchmark, including 0 as a genuinely healthy state', () => {
+    const zero = buildFinancialBenchmarks({ ...healthyInput, adSpend30d: 0 });
+    expect(zero.factors.find((f) => f.id === 'marketing-spend')?.status).toBe('healthy');
+    expect(zero.factors.find((f) => f.id === 'marketing-spend')?.actualPct).toBe(0);
+
+    const watch = buildFinancialBenchmarks({ ...healthyInput, adSpend30d: 800 }); // 8%
+    expect(watch.factors.find((f) => f.id === 'marketing-spend')?.status).toBe('watch');
+
+    const high = buildFinancialBenchmarks({ ...healthyInput, adSpend30d: 1500 }); // 15%
+    const highFactor = high.factors.find((f) => f.id === 'marketing-spend');
+    expect(highFactor?.status).toBe('high');
+    expect(highFactor?.recommendation).toMatch(/blended CAC/i);
   });
 
   it('flags total costs above 80% as a genuine warning, not just watch', () => {

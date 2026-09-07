@@ -1964,6 +1964,7 @@ async function handleBusinessRiskInputs(): Promise<Response> {
     { data: overheadRow, error: overheadError },
     { data: committedDebtRows, error: committedDebtError },
     { data: goalRow, error: goalError },
+    { data: adSpendRows, error: adSpendError },
   ] = await Promise.all([
     supabase
       .from('fresha_appointments')
@@ -2002,10 +2003,19 @@ async function handleBusinessRiskInputs(): Promise<Response> {
     supabase.from('business_overhead').select('monthly_rent, monthly_insurance, monthly_loan_repayments, monthly_other_fixed_costs, cash_reserves').maybeSingle(),
     supabase.from('business_debt_decisions').select('monthly_repayment').eq('status', 'committed'),
     supabase.from('business_goal').select('target_valuation, target_date, valuation_multiple_low, valuation_multiple_high').maybeSingle(),
+    // Real ad spend (added 8 Sep 2026, per direct question: "do the
+    // financial figures include adspend grabbed from meta and inputted
+    // for google") — they didn't, a genuine gap this closed. Reads
+    // through `v_ad_spend_daily_effective`, the same "richest real data
+    // wins" view every other real ad-spend consumer in this app reads
+    // through (real Meta API sync beats a manual/CSV entry for the same
+    // day — see that view's own schema comment), one query spanning both
+    // the current and prior 30-day windows, split client-side below.
+    supabase.from('v_ad_spend_daily_effective').select('spend_date, effective_spend').gte('spend_date', priorProfPeriodStart).lte('spend_date', today),
   ]);
   for (const e of [
     revenueError, concentrationError, cacError, stylistsError, profApptError, priorProfApptError, wagesError,
-    hoursError, costsError, patternError, leaveError, ingredientsError, recipeError, retailBatchesError, overheadError, committedDebtError, goalError,
+    hoursError, costsError, patternError, leaveError, ingredientsError, recipeError, retailBatchesError, overheadError, committedDebtError, goalError, adSpendError,
   ]) {
     if (e) return jsonResponse({ ok: false, error: e.message }, 500);
   }
@@ -2086,7 +2096,16 @@ async function handleBusinessRiskInputs(): Promise<Response> {
   const operatingRevenue30d = profRows.reduce((sum, r) => sum + r.revenue, 0);
   const operatingWageCost30d = profRows.reduce((sum, r) => sum + r.wageCost, 0);
   const operatingProductCost30d = profRows.reduce((sum, r) => sum + r.productCost, 0);
-  const operatingCashFlow30d = operatingRevenue30d - operatingWageCost30d - operatingProductCost30d;
+
+  // Real ad spend for the current and prior 30-day windows, split from
+  // the one combined query above by real spend_date.
+  const adSpendByDate = (adSpendRows ?? []) as { spend_date: string; effective_spend: number }[];
+  const operatingAdSpend30d = adSpendByDate.filter((r) => r.spend_date >= profPeriodStart && r.spend_date <= today).reduce((sum, r) => sum + Number(r.effective_spend), 0);
+  const priorOperatingAdSpend30d = adSpendByDate
+    .filter((r) => r.spend_date >= priorProfPeriodStart && r.spend_date <= priorProfPeriodEnd)
+    .reduce((sum, r) => sum + Number(r.effective_spend), 0);
+
+  const operatingCashFlow30d = operatingRevenue30d - operatingWageCost30d - operatingProductCost30d - operatingAdSpend30d;
 
   // Prior 30-day window, same computation shifted back 30 days (added 6
   // Sep 2026) — lets the valuation goal tracker show a real trend instead
@@ -2106,7 +2125,10 @@ async function handleBusinessRiskInputs(): Promise<Response> {
     leave ?? [],
   );
   const priorOperatingCashFlow30d =
-    priorProfRows.reduce((sum, r) => sum + r.revenue, 0) - priorProfRows.reduce((sum, r) => sum + r.wageCost, 0) - priorProfRows.reduce((sum, r) => sum + r.productCost, 0);
+    priorProfRows.reduce((sum, r) => sum + r.revenue, 0) -
+    priorProfRows.reduce((sum, r) => sum + r.wageCost, 0) -
+    priorProfRows.reduce((sum, r) => sum + r.productCost, 0) -
+    priorOperatingAdSpend30d;
 
   const overhead = overheadRow
     ? {
@@ -2170,6 +2192,7 @@ async function handleBusinessRiskInputs(): Promise<Response> {
     operatingRevenue30d: Math.round(operatingRevenue30d * 100) / 100,
     operatingWageCost30d: Math.round(operatingWageCost30d * 100) / 100,
     operatingProductCost30d: Math.round(operatingProductCost30d * 100) / 100,
+    operatingAdSpend30d: Math.round(operatingAdSpend30d * 100) / 100,
     overhead,
     committedDebtMonthlyRepayments: Math.round(committedDebtMonthlyRepayments * 100) / 100,
     goal,

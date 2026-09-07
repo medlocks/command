@@ -19,6 +19,13 @@
  * - Product/professional supplies 8–12% of revenue: joinhomebase.com.
  * - Total operating costs 65–75% of revenue healthy, 80%+ a real warning
  *   sign: quarkbooker.com "Salon Financial Management".
+ * - Marketing/ad spend 3–7% of revenue healthy for a salon (up to 10%
+ *   temporarily plausible in a real growth push, e.g. opening a second
+ *   chair/location), checked 8 Sep 2026: growasalon.com "Salon Marketing
+ *   Strategies: The Complete 2026 Guide"; the US SBA's broader small-
+ *   business guidance (7–8% of gross revenue for businesses under $5M)
+ *   sits a little higher, consistent with salons running leaner than
+ *   average on marketing spend specifically.
  */
 
 export type BenchmarkStatus = 'healthy' | 'watch' | 'high' | 'not-measurable';
@@ -42,6 +49,8 @@ export interface FinancialBenchmarksInputs {
   revenue30d: number;
   wageCost30d: number;
   productCost30d: number;
+  /** Real trailing-30-day ad spend (added 8 Sep 2026) — real Meta API sync + manually-entered Google spend. */
+  adSpend30d: number;
   overhead: {
     monthlyRent: number;
     monthlyInsurance: number;
@@ -99,7 +108,27 @@ function buildProductCostFactor(productCost30d: number, revenue30d: number): Ben
   return { id: 'product-cost', label: 'Product cost', actualPct, rangeLabel: '8–12% of revenue', status, recommendation };
 }
 
-function buildTotalCostsFactor(wageCost30d: number, productCost30d: number, overhead: FinancialBenchmarksInputs['overhead'], revenue30d: number): BenchmarkFactor {
+/** Real £0 here is a plausible, genuinely healthy state (unlike product cost, which has no live source at all) — most small salons legitimately run zero paid ads, so it's not treated as a data gap. */
+function buildMarketingSpendFactor(adSpend30d: number, revenue30d: number): BenchmarkFactor {
+  const actualPct = revenue30d > 0 ? adSpend30d / revenue30d : null;
+  if (actualPct === null) return { id: 'marketing-spend', label: 'Marketing / ad spend', actualPct: null, rangeLabel: '3–7% of revenue', status: 'not-measurable', recommendation: 'No real revenue in the last 30 days to compare ad spend against yet.' };
+
+  const status: BenchmarkStatus = actualPct <= 0.07 ? 'healthy' : actualPct <= 0.1 ? 'watch' : 'high';
+  const recommendation =
+    status === 'healthy'
+      ? `${gbp(adSpend30d)} in real ad spend (Meta + Google) against ${gbp(revenue30d)} trailing revenue — within the 3–7% typical for a salon.`
+      : `Ad spend is ${pct(actualPct)} of real trailing revenue — above the 3–7% typical range (up to 10% is plausible during a real, deliberate growth push, but worth checking it's earning that back in new clients — see Marketing's blended CAC).`;
+
+  return { id: 'marketing-spend', label: 'Marketing / ad spend', actualPct, rangeLabel: '3–7% of revenue', status, recommendation };
+}
+
+function buildTotalCostsFactor(
+  wageCost30d: number,
+  productCost30d: number,
+  adSpend30d: number,
+  overhead: FinancialBenchmarksInputs['overhead'],
+  revenue30d: number,
+): BenchmarkFactor {
   if (!overhead) {
     return { id: 'total-costs', label: 'Total operating costs', actualPct: null, rangeLabel: '65–75% of revenue', status: 'not-measurable', recommendation: 'Enter your real fixed overhead on the Risk Meter to see total costs as a share of revenue.' };
   }
@@ -107,14 +136,14 @@ function buildTotalCostsFactor(wageCost30d: number, productCost30d: number, over
     return { id: 'total-costs', label: 'Total operating costs', actualPct: null, rangeLabel: '65–75% of revenue', status: 'not-measurable', recommendation: 'No real revenue in the last 30 days to compare total costs against yet.' };
   }
 
-  const totalCosts = wageCost30d + productCost30d + overhead.monthlyRent + overhead.monthlyInsurance + overhead.monthlyLoanRepayments + overhead.monthlyOtherFixedCosts;
+  const totalCosts = wageCost30d + productCost30d + adSpend30d + overhead.monthlyRent + overhead.monthlyInsurance + overhead.monthlyLoanRepayments + overhead.monthlyOtherFixedCosts;
   const actualPct = totalCosts / revenue30d;
   const status: BenchmarkStatus = actualPct <= 0.75 ? 'healthy' : actualPct <= 0.8 ? 'watch' : 'high';
   const productCostCaveat = productCost30d === 0 ? ' (product cost isn\'t included — none logged yet for this period, so this understates the real total.)' : '';
   const recommendation =
     status === 'healthy'
-      ? `Total real costs (wages, product, rent, insurance, loan repayments, other fixed costs) are ${pct(actualPct)} of revenue — within the 65–75% a healthy salon typically runs at, leaving real room for profit.${productCostCaveat}`
-      : `Total real costs are ${pct(actualPct)} of revenue — above the 65–75% healthy range, and past 80% is a genuine warning sign in salon financial guidance. Work through labour first (usually the biggest lever), then rent and product spend.${productCostCaveat}`;
+      ? `Total real costs (wages, product, ad spend, rent, insurance, loan repayments, other fixed costs) are ${pct(actualPct)} of revenue — within the 65–75% a healthy salon typically runs at, leaving real room for profit.${productCostCaveat}`
+      : `Total real costs are ${pct(actualPct)} of revenue — above the 65–75% healthy range, and past 80% is a genuine warning sign in salon financial guidance. Work through labour first (usually the biggest lever), then rent, ad spend, and product spend.${productCostCaveat}`;
 
   return { id: 'total-costs', label: 'Total operating costs', actualPct, rangeLabel: '65–75% of revenue', status, recommendation };
 }
@@ -124,9 +153,10 @@ export function buildFinancialBenchmarks(input: FinancialBenchmarksInputs): Fina
   const rent = buildRentFactor(input.overhead?.monthlyRent ?? 0, input.revenue30d);
   const labour = buildLabourFactor(input.wageCost30d, input.revenue30d);
   const productCost = buildProductCostFactor(input.productCost30d, input.revenue30d);
-  const totalCosts = buildTotalCostsFactor(input.wageCost30d, input.productCost30d, input.overhead, input.revenue30d);
+  const marketingSpend = buildMarketingSpendFactor(input.adSpend30d, input.revenue30d);
+  const totalCosts = buildTotalCostsFactor(input.wageCost30d, input.productCost30d, input.adSpend30d, input.overhead, input.revenue30d);
 
-  const factors = input.overhead ? [rent, labour, productCost, totalCosts] : [labour, productCost, totalCosts];
+  const factors = input.overhead ? [rent, labour, productCost, marketingSpend, totalCosts] : [labour, productCost, marketingSpend, totalCosts];
   const measurable = factors.filter((f) => f.status !== 'not-measurable');
   const highCount = measurable.filter((f) => f.status === 'high').length;
   const watchCount = measurable.filter((f) => f.status === 'watch').length;

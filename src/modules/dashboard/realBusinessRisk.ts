@@ -57,6 +57,7 @@ export async function buildRealBusinessRisk(): Promise<RealBusinessRiskResult> {
     revenue30d: result.operatingRevenue30d,
     wageCost30d: result.operatingWageCost30d,
     productCost30d: result.operatingProductCost30d,
+    adSpend30d: result.operatingAdSpend30d ?? 0,
     overhead,
   });
 

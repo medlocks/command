@@ -589,6 +589,8 @@ export interface BusinessRiskInputsResult {
   operatingRevenue30d?: number;
   operatingWageCost30d?: number;
   operatingProductCost30d?: number;
+  /** Real trailing-30-day ad spend (added 8 Sep 2026) — real Meta API sync + manually-entered Google spend, via `v_ad_spend_daily_effective`. Already subtracted into `operatingCashFlow30d`; exposed separately for the Financial Benchmarks card. */
+  operatingAdSpend30d?: number;
   /** Real fixed overhead + cash reserves, null until the owner enters them (added 6 Sep 2026). */
   overhead?: BusinessOverhead | null;
   /** Real sum of every committed debt/investment decision's monthly repayment (added 6 Sep 2026, Debt Decision Justifier). */
