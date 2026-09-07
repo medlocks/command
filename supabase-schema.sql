@@ -1126,6 +1126,31 @@ create table public.business_goal (
   updated_at timestamptz not null default now()
 );
 
+-- Real Shopify order line items (added 7 Sep 2026) — synced by the
+-- `shopify-sync` Edge Function via a real Shopify Admin API connection
+-- (client-credentials OAuth grant, since the custom app was created via
+-- Shopify's post-Jan-2026 Dev Dashboard flow, not the older static-token
+-- flow). `read_orders` (unprotected scope) only returns the last 60 real
+-- days of orders — by design, not a bug, since requesting full history
+-- (`read_all_orders`) needs Shopify's own manual approval. This is what
+-- finally makes the product line's "DTC traction" gate (see
+-- `handleRetailSkuCosts`'s own comment) a real computed signal instead of
+-- permanently null.
+create table public.shopify_line_items (
+  id uuid primary key default gen_random_uuid(),
+  shopify_order_id text not null,
+  shopify_line_item_id text not null,
+  order_created_at timestamptz not null,
+  title text not null,
+  quantity integer not null,
+  price numeric(10,2) not null,
+  synced_at timestamptz not null default now(),
+  unique (shopify_order_id, shopify_line_item_id)
+);
+
+create index idx_shopify_line_items_created on public.shopify_line_items(order_created_at);
+create index idx_shopify_line_items_title on public.shopify_line_items(title);
+
 -- Real UK cosmetic-product legal requirements before a product can be sold
 -- (added 6 Sep 2026) — sourced from the Office for Product Safety and
 -- Standards' SCPN regime (UK Cosmetic Products Enforcement Regulations
@@ -1154,6 +1179,7 @@ alter table public.retail_production_batches enable row level security;
 alter table public.business_overhead enable row level security;
 alter table public.business_debt_decisions enable row level security;
 alter table public.business_goal enable row level security;
+alter table public.shopify_line_items enable row level security;
 
 create policy "owner_manager_retail_ingredients" on public.retail_ingredients
   for all using (public.current_user_role() in ('owner', 'manager', 'admin'));
@@ -1172,6 +1198,8 @@ create policy "owner_manager_business_overhead" on public.business_overhead
 create policy "owner_manager_business_debt_decisions" on public.business_debt_decisions
   for all using (public.current_user_role() in ('owner', 'manager', 'admin'));
 create policy "owner_manager_business_goal" on public.business_goal
+  for all using (public.current_user_role() in ('owner', 'manager', 'admin'));
+create policy "owner_manager_shopify_line_items" on public.shopify_line_items
   for all using (public.current_user_role() in ('owner', 'manager', 'admin'));
 
 -- =====================================================================
