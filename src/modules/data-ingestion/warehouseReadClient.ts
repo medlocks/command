@@ -776,3 +776,22 @@ export interface CompetitorChangesFeedResult {
 export function fetchCompetitorChangesFeed(sinceDays?: number): Promise<CompetitorChangesFeedResult> {
   return callFunction({ query: 'competitor_changes_feed', sinceDays });
 }
+
+export interface CompetitorHiringSignal {
+  competitorName: string;
+  address: string;
+  summary: string;
+  sourceUrls: string[];
+  checkedAt: string;
+}
+
+export interface CompetitorHiringSignalsResult {
+  ok: boolean;
+  signals?: CompetitorHiringSignal[];
+  error?: string;
+}
+
+/** Real, OpenAI-web-search-backed hiring signals (added 7 Sep 2026) — see `handleCompetitorHiringSignals`'s own comment for the mechanism (OpenAI's own infrastructure reaches careers pages/job boards a plain fetch can't). `summary` is the model's real, citation-backed prose. */
+export function fetchCompetitorHiringSignals(): Promise<CompetitorHiringSignalsResult> {
+  return callFunction({ query: 'competitor_hiring_signals' });
+}

@@ -1026,6 +1026,26 @@ select cron.schedule(
   $$
 );
 
+-- Weekly, not daily (added 7 Sep 2026) — real hiring posts change on the
+-- order of weeks, not daily, and each real OpenAI web-search call takes
+-- ~15s, so scanning ~19 real competitors daily would be needless real
+-- API spend for no real new signal most days.
+select cron.schedule(
+  'hiring-scan',
+  '0 5 * * 1',
+  $$
+  select net.http_post(
+    url := 'https://yimtohrunyzkxdrlhhcr.supabase.co/functions/v1/hiring-scan',
+    headers := jsonb_build_object(
+      'Content-Type', 'application/json',
+      'Authorization', 'Bearer ' || (select decrypted_secret from vault.decrypted_secrets where name = 'digest_cron_anon_key'),
+      'x-app-secret', (select decrypted_secret from vault.decrypted_secrets where name = 'shopify_sync_cron_shared_secret')
+    ),
+    body := '{}'::jsonb
+  ) as request_id;
+  $$
+);
+
 -- =====================================================================
 -- MedLocks retail product line (added 5 Sep 2026)
 -- =====================================================================
@@ -1546,6 +1566,32 @@ create index idx_competitor_changes_detected on public.competitor_changes(detect
 alter table public.competitor_changes enable row level security;
 
 create policy "owner_manager_competitor_changes" on public.competitor_changes
+  for all using (public.current_user_role() in ('owner', 'manager', 'admin'));
+
+-- Real hiring-signal check (added 7 Sep 2026, per direct request: "scan
+-- any job postings to help us beat and win the hiring game"). A plain
+-- server-side fetch can't reach Indeed or most salons' own careers pages
+-- (confirmed live: Room 97's own site returns HTTP 403 to a direct
+-- request) — but OpenAI's Responses API `web_search_preview` tool
+-- performs the real fetch from OpenAI's own infrastructure instead of
+-- this project's, and reached Room 97's real careers page without issue
+-- (verified live, 7 Sep 2026). `summary` is the model's own real,
+-- citation-backed prose, not a fabricated structured fact — `source_urls`
+-- are the real pages it actually cited, so a human can verify by
+-- clicking through rather than trusting the summary blindly. One row per
+-- competitor (upserted), not a history table — hiring posts change on
+-- the order of weeks, not daily, so "current status" is what matters.
+create table public.competitor_hiring_signals (
+  id uuid primary key default gen_random_uuid(),
+  competitor_id uuid not null unique references public.competitor_salons(id) on delete cascade,
+  summary text not null,
+  source_urls text[] not null default '{}',
+  checked_at timestamptz not null default now()
+);
+
+alter table public.competitor_hiring_signals enable row level security;
+
+create policy "owner_manager_competitor_hiring_signals" on public.competitor_hiring_signals
   for all using (public.current_user_role() in ('owner', 'manager', 'admin'));
 
 -- =====================================================================

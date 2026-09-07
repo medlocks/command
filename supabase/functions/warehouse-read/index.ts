@@ -2225,6 +2225,42 @@ async function handleCompetitorSalonFullMenu(): Promise<Response> {
 }
 
 /**
+ * Real, OpenAI-web-search-backed hiring signals (added 7 Sep 2026, per
+ * direct request: "scan any job postings to help us beat and win the
+ * hiring game"). See `hiring-scan`'s own comment for the full mechanism
+ * — a plain server-side fetch can't reach most careers pages/job boards,
+ * but OpenAI's `web_search_preview` tool fetches from its own
+ * infrastructure instead. `summary` is the model's own real, citation-
+ * backed prose (rendered as-is, not restructured), never a fabricated
+ * structured fact.
+ */
+async function handleCompetitorHiringSignals(): Promise<Response> {
+  const { data, error } = await supabase
+    .from('competitor_hiring_signals')
+    .select('summary, source_urls, checked_at, competitor_salons(name, address)')
+    .order('checked_at', { ascending: false });
+  if (error) return jsonResponse({ ok: false, error: error.message }, 500);
+
+  type Row = {
+    summary: string;
+    source_urls: string[];
+    checked_at: string;
+    competitor_salons: { name: string; address: string } | null;
+  };
+
+  return jsonResponse({
+    ok: true,
+    signals: ((data ?? []) as unknown as Row[]).map((row) => ({
+      competitorName: row.competitor_salons?.name ?? 'Unknown',
+      address: row.competitor_salons?.address ?? '',
+      summary: row.summary,
+      sourceUrls: row.source_urls,
+      checkedAt: row.checked_at,
+    })),
+  });
+}
+
+/**
  * Real change log (added 7 Sep 2026, per direct request: "keep us
  * always up to date... one step ahead"). Detected inline during the
  * daily scan by diffing against the previously-stored real state — see
@@ -2565,7 +2601,8 @@ interface RequestBody {
     | 'competitor_product_listings'
     | 'voice_of_customer'
     | 'competitor_salon_full_menu'
-    | 'competitor_changes_feed';
+    | 'competitor_changes_feed'
+    | 'competitor_hiring_signals';
   retailTypeNames?: string[];
   clientName?: string;
   periods?: unknown;
@@ -2649,6 +2686,8 @@ Deno.serve(async (req) => {
       return handleCompetitorSalonFullMenu();
     case 'competitor_changes_feed':
       return handleCompetitorChangesFeed(body.sinceDays);
+    case 'competitor_hiring_signals':
+      return handleCompetitorHiringSignals();
     default:
       return jsonResponse({ ok: false, error: 'Unknown query' }, 400);
   }

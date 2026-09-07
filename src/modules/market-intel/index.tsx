@@ -4,6 +4,7 @@ import { GapPromptsSection } from './GapPromptsSection';
 import { FullMenusSection } from './FullMenusSection';
 import { ProductRivalsSection } from './ProductRivalsSection';
 import { VoiceOfCustomerSection } from './VoiceOfCustomerSection';
+import { HiringSignalsSection } from './HiringSignalsSection';
 
 /**
  * Market Intel (added 7 Sep 2026, per direct request: "it needs to be
@@ -35,6 +36,7 @@ export function MarketIntelPage() {
       </header>
 
       <RecentChangesSection />
+      <HiringSignalsSection />
       <GapPromptsSection />
       <FullMenusSection />
       <ProductRivalsSection />
