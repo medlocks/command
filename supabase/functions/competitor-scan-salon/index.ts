@@ -46,15 +46,22 @@ function jsonResponse(body: unknown, status = 200): Response {
  * real service menus fetched 7 Sep 2026 (Didi Krasniqi, Lillywhite & Co,
  * Zest, Gary Sunderland, Dona's Hair & Beauty Spa).
  */
+// Real correction, 7 Sep 2026: "auto dismiss this bs we are a hair
+// salon not a try do everything poorly salon". Non-hair beauty
+// categories (nails, waxing, brows/lashes, facials/aesthetics, makeup)
+// were removed from this list entirely, not just dismissed — a "gap" is
+// only meaningful within an actual hair salon's real scope, so those
+// service names now classify as null (no tag) at the source, same as
+// any other out-of-scope text. This is a structural exclusion, not a
+// per-tag dismissal: it holds for every future scan without relying on
+// `competitor_gap_dismissals`. `mens_grooming` stays classified (it's a
+// real hair service, just the wrong customer segment) since that one is
+// handled via an explicit, visible dismissal with its own real reason —
+// see `competitor_gap_dismissals` and [[feedback_medlocks_niche_positioning]].
 const GAP_TAGS: Array<{ tag: string; keywords: string[] }> = [
   { tag: 'keratin_smoothing', keywords: ['keratin', 'brazilian', 'permanent straightening', 'bioplastica', 'hair botox', 'smoothing treatment'] },
   { tag: 'mens_grooming', keywords: ['gents', "gent's", 'gentlemen', "men's", 'mens', 'skin fade', 'beard', 'hot towel', 'boys cut', 'boy cut', 'crop all over', 'hair pattern'] },
   { tag: 'childrens', keywords: ['girls cut', 'girls trim', 'kids', 'child', 'junior'] },
-  { tag: 'waxing', keywords: ['waxing', ' wax', 'bikini'] },
-  { tag: 'nails', keywords: ['manicure', 'pedicure', 'nail', 'acrylic', 'acrygel', 'biab', 'gel polish'] },
-  { tag: 'brows_lashes', keywords: ['brow', 'lash'] },
-  { tag: 'facials_aesthetics', keywords: ['facial', 'dermaplaning', 'microneedling', 'anti-wrinkle', 'chemical peel', 'skin booster', 'fat dissolving', 'filler', 'botox'] },
-  { tag: 'makeup', keywords: ['make up', 'make-up', 'makeup'] },
 ];
 
 function classifyGapTag(serviceName: string): string | null {

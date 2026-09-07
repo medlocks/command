@@ -22,16 +22,20 @@ export interface GapPrompt {
   headlineExample: string;
 }
 
-/** Real, explicit labels for each keyword-classified tag — see `competitor-scan-salon`'s own `GAP_TAGS` for the keyword lists behind each one. */
+/**
+ * Real, explicit labels for each keyword-classified tag — see
+ * `competitor-scan-salon`'s own `GAP_TAGS` for the keyword lists behind
+ * each one. Deliberately hair-services-only (nails/waxing/brows-lashes/
+ * facials-aesthetics/makeup were removed from classification entirely,
+ * not just labelled away — "we are a hair salon not a try do everything
+ * poorly salon", 7 Sep 2026). `mens_grooming` stays labelled since it's
+ * a real hair service tracked-but-dismissed for a different reason (see
+ * `competitor_gap_dismissals`).
+ */
 const TAG_LABELS: Record<string, string> = {
   mens_grooming: "Men's grooming / barbering",
   keratin_smoothing: 'Keratin / permanent-straightening treatments',
-  nails: 'Nail services',
-  brows_lashes: 'Brow & lash treatments',
-  facials_aesthetics: 'Facials & aesthetics add-ons',
-  waxing: 'Waxing',
   childrens: "Children's cuts",
-  makeup: 'Makeup',
 };
 
 export function labelForGapTag(tag: string): string {

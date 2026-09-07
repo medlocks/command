@@ -2184,15 +2184,19 @@ async function handleBusinessRiskInputs(): Promise<Response> {
 // than a frozen assumption baked in once — if Medlocks ever genuinely
 // starts offering, say, nails, this stops flagging it with zero code
 // changes needed.
+// Real correction, 7 Sep 2026: "auto dismiss this bs we are a hair
+// salon not a try do everything poorly salon" — non-hair beauty
+// categories (nails, waxing, brows/lashes, facials/aesthetics, makeup)
+// removed from this list entirely (structural exclusion, mirrored in
+// competitor-scan-salon's own copy — see that function's own comment
+// for the full reasoning), not just dismissed. `mens_grooming` stays
+// classified since it's a real hair service, just the wrong customer
+// segment, handled via an explicit `competitor_gap_dismissals` row
+// instead — see [[feedback_medlocks_niche_positioning]].
 const GAP_TAGS: Array<{ tag: string; keywords: string[] }> = [
   { tag: 'keratin_smoothing', keywords: ['keratin', 'brazilian', 'permanent straightening', 'bioplastica', 'hair botox', 'smoothing treatment'] },
   { tag: 'mens_grooming', keywords: ['gents', "gent's", 'gentlemen', "men's", 'mens', 'skin fade', 'beard', 'hot towel', 'boys cut', 'boy cut', 'crop all over', 'hair pattern'] },
   { tag: 'childrens', keywords: ['girls cut', 'girls trim', 'kids', 'child', 'junior'] },
-  { tag: 'waxing', keywords: ['waxing', ' wax', 'bikini'] },
-  { tag: 'nails', keywords: ['manicure', 'pedicure', 'nail', 'acrylic', 'acrygel', 'biab', 'gel polish'] },
-  { tag: 'brows_lashes', keywords: ['brow', 'lash'] },
-  { tag: 'facials_aesthetics', keywords: ['facial', 'dermaplaning', 'microneedling', 'anti-wrinkle', 'chemical peel', 'skin booster', 'fat dissolving', 'filler', 'botox'] },
-  { tag: 'makeup', keywords: ['make up', 'make-up', 'makeup'] },
 ];
 
 function classifyGapTag(serviceName: string): string | null {
