@@ -2199,6 +2199,115 @@ async function handleBusinessRiskInputs(): Promise<Response> {
   });
 }
 
+const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+/** A cell counts as real, actionable slack capacity below this — a stated threshold, not "the AI decides" (same discipline as `DEFAULT_TARGET_MARGIN_PCT` elsewhere). */
+const LOW_UTILIZATION_THRESHOLD = 0.5;
+/** 8 weeks — long enough for a stable per-weekday read without reacting to one unusually quiet/busy week, short enough to reflect a stylist's current real working pattern. */
+const CAPACITY_HEATMAP_WINDOW_WEEKS = 8;
+
+/**
+ * Real day-of-week × stylist utilization (added 8 Sep 2026, per direct
+ * request, after the Growth Roadmap's own code flagged the gap: "no real
+ * waitlist/booking-availability data source yet... utilization is the
+ * closest available signal, not a substitute for actually tracking
+ * turned-away bookings" — this doesn't add booking-availability tracking,
+ * but it does turn the single coarse "average utilization %" into a real
+ * per-day, per-stylist breakdown, so genuinely slack capacity (rent and
+ * wages already paid for either way) is visible by name and day rather
+ * than hidden inside one salon-wide number.
+ *
+ * Real available hours come from `stylist_working_pattern`'s current
+ * entry for that weekday (0 on a real day off); real booked hours are
+ * `fresha_appointments.duration_minutes` summed per stylist per weekday
+ * over the trailing 8 real weeks, divided by how many real instances of
+ * that weekday actually occurred in the window (excluding any the
+ * stylist was on real logged leave for, so a holiday doesn't read as a
+ * "dead Tuesday" opportunity that isn't real).
+ */
+async function handleCapacityHeatmap(): Promise<Response> {
+  const today = new Date().toISOString().slice(0, 10);
+  const windowStart = addDays(today, -(CAPACITY_HEATMAP_WINDOW_WEEKS * 7 - 1));
+
+  const [
+    { data: stylists, error: stylistsError },
+    { data: patternRows, error: patternError },
+    { data: leaveRows, error: leaveError },
+    { data: appointments, error: apptError },
+  ] = await Promise.all([
+    supabase.from('stylists').select('id, name').eq('employment_status', 'active'),
+    supabase.from('stylist_working_pattern').select('stylist_id, day_of_week, hours, effective_from, effective_to'),
+    supabase.from('stylist_leave').select('stylist_id, date_start, date_end').gte('date_end', windowStart).lte('date_start', today),
+    supabase
+      .from('fresha_appointments')
+      .select('team_member_name, scheduled_date, duration_minutes')
+      .in('status', REAL_WORK_STATUSES)
+      .gte('scheduled_date', windowStart)
+      .lte('scheduled_date', today),
+  ]);
+  if (stylistsError) return jsonResponse({ ok: false, error: stylistsError.message }, 500);
+  if (patternError) return jsonResponse({ ok: false, error: patternError.message }, 500);
+  if (leaveError) return jsonResponse({ ok: false, error: leaveError.message }, 500);
+  if (apptError) return jsonResponse({ ok: false, error: apptError.message }, 500);
+
+  type StylistRow = { id: string; name: string };
+  type PatternRow = { stylist_id: string; day_of_week: number; hours: number; effective_from: string; effective_to: string | null };
+  type LeaveRow = { stylist_id: string; date_start: string; date_end: string };
+  type ApptRow = { team_member_name: string; scheduled_date: string; duration_minutes: number };
+
+  const isOnLeave = (stylistId: string, date: string) =>
+    ((leaveRows ?? []) as LeaveRow[]).some((l) => l.stylist_id === stylistId && l.date_start <= date && date <= l.date_end);
+
+  // Current pattern entry per (stylist, weekday) — the one real row whose
+  // effective range covers today, latest effective_from wins if somehow
+  // more than one does.
+  function currentHoursFor(stylistId: string, dayOfWeek: number): number {
+    const candidates = ((patternRows ?? []) as PatternRow[]).filter(
+      (p) => p.stylist_id === stylistId && p.day_of_week === dayOfWeek && p.effective_from <= today && (p.effective_to === null || p.effective_to >= today),
+    );
+    if (candidates.length === 0) return 0;
+    return candidates.reduce((latest, p) => (p.effective_from > latest.effective_from ? p : latest), candidates[0]).hours;
+  }
+
+  const apptsByStylistName = new Map<string, ApptRow[]>();
+  for (const appt of (appointments ?? []) as ApptRow[]) {
+    if (!apptsByStylistName.has(appt.team_member_name)) apptsByStylistName.set(appt.team_member_name, []);
+    apptsByStylistName.get(appt.team_member_name)!.push(appt);
+  }
+
+  const lowUtilizationSlots: Array<{ stylistName: string; dayName: string; utilizationPct: number; availableHours: number; avgBookedHours: number }> = [];
+
+  const stylistResults = ((stylists ?? []) as StylistRow[]).map((stylist) => {
+    const realAppointments = apptsByStylistName.get(stylist.name) ?? [];
+
+    const days = DAY_NAMES.map((dayName, dayOfWeek) => {
+      const availableHours = currentHoursFor(stylist.id, dayOfWeek);
+
+      let weekInstances = 0;
+      let date = windowStart;
+      while (date <= today) {
+        if (new Date(`${date}T00:00:00Z`).getUTCDay() === dayOfWeek && !isOnLeave(stylist.id, date)) weekInstances += 1;
+        date = addDays(date, 1);
+      }
+
+      const bookedMinutes = realAppointments.filter((a) => new Date(`${a.scheduled_date}T00:00:00Z`).getUTCDay() === dayOfWeek).reduce((sum, a) => sum + a.duration_minutes, 0);
+      const avgBookedHours = weekInstances > 0 ? bookedMinutes / 60 / weekInstances : 0;
+      const utilizationPct = availableHours > 0 ? Math.round((avgBookedHours / availableHours) * 1000) / 1000 : null;
+
+      if (utilizationPct !== null && utilizationPct < LOW_UTILIZATION_THRESHOLD) {
+        lowUtilizationSlots.push({ stylistName: stylist.name, dayName, utilizationPct, availableHours, avgBookedHours: Math.round(avgBookedHours * 10) / 10 });
+      }
+
+      return { dayOfWeek, dayName, availableHours, avgBookedHours: Math.round(avgBookedHours * 10) / 10, utilizationPct };
+    });
+
+    return { stylistId: stylist.id, name: stylist.name, days };
+  });
+
+  lowUtilizationSlots.sort((a, b) => a.utilizationPct - b.utilizationPct);
+
+  return jsonResponse({ ok: true, windowWeeks: CAPACITY_HEATMAP_WINDOW_WEEKS, stylists: stylistResults, lowUtilizationSlots });
+}
+
 /**
  * Real, full per-competitor service menu (added 7 Sep 2026, per direct
  * request: "way more info inside it"). Unlike `handleCompetitorSalonGaps`,
@@ -2625,7 +2734,8 @@ interface RequestBody {
     | 'voice_of_customer'
     | 'competitor_salon_full_menu'
     | 'competitor_changes_feed'
-    | 'competitor_hiring_signals';
+    | 'competitor_hiring_signals'
+    | 'capacity_heatmap';
   retailTypeNames?: string[];
   clientName?: string;
   periods?: unknown;
@@ -2711,6 +2821,8 @@ Deno.serve(async (req) => {
       return handleCompetitorChangesFeed(body.sinceDays);
     case 'competitor_hiring_signals':
       return handleCompetitorHiringSignals();
+    case 'capacity_heatmap':
+      return handleCapacityHeatmap();
     default:
       return jsonResponse({ ok: false, error: 'Unknown query' }, 400);
   }

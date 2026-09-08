@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Card, Skeleton } from '@/shared';
 import type { GrowthRoadmap, RoadmapStage, StageStatus } from '@/modules/insight-engine';
 import { buildRealGrowthRoadmap } from './realGrowthRoadmap';
+import { CapacityHeatmapSection } from './CapacityHeatmapSection';
 
 const WINDOW_MONTHS_OPTIONS = [3, 6, 12];
 const SELECT_CLASSES =
@@ -182,6 +183,8 @@ export function GrowthRoadmapPage() {
               <StageCard key={stage.id} stage={stage} index={i} />
             ))}
           </div>
+
+          <CapacityHeatmapSection />
 
           <p className="px-1 text-xs text-[var(--color-ink-muted)]">
             "Where" to expand is a separate, later problem — it needs external data (local demographics, competitor

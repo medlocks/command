@@ -797,3 +797,39 @@ export interface CompetitorHiringSignalsResult {
 export function fetchCompetitorHiringSignals(): Promise<CompetitorHiringSignalsResult> {
   return callFunction({ query: 'competitor_hiring_signals' });
 }
+
+export interface CapacityHeatmapDay {
+  dayOfWeek: number;
+  dayName: string;
+  availableHours: number;
+  avgBookedHours: number;
+  /** Null on a real day off (no available hours to divide by) — never a fabricated 0%. */
+  utilizationPct: number | null;
+}
+
+export interface CapacityHeatmapStylist {
+  stylistId: string;
+  name: string;
+  days: CapacityHeatmapDay[];
+}
+
+export interface CapacityHeatmapLowSlot {
+  stylistName: string;
+  dayName: string;
+  utilizationPct: number;
+  availableHours: number;
+  avgBookedHours: number;
+}
+
+export interface CapacityHeatmapResult {
+  ok: boolean;
+  windowWeeks?: number;
+  stylists?: CapacityHeatmapStylist[];
+  lowUtilizationSlots?: CapacityHeatmapLowSlot[];
+  error?: string;
+}
+
+/** Real per-day, per-stylist utilization (added 8 Sep 2026) — see `handleCapacityHeatmap`'s own comment for the real 8-week averaging and leave-exclusion logic. Turns the Growth Roadmap's single coarse utilization % into a real breakdown of exactly where slack capacity sits. */
+export function fetchCapacityHeatmap(): Promise<CapacityHeatmapResult> {
+  return callFunction({ query: 'capacity_heatmap' });
+}
