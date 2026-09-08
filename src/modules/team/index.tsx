@@ -10,6 +10,7 @@ import {
   type StylistRosterResult,
 } from '@/modules/data-ingestion/warehouseReadClient';
 import { commitStylist, updateStylist, type WarehouseWriteResult } from '@/modules/data-ingestion/warehouseWriteClient';
+import { StylistPaceSection } from './StylistPaceSection';
 
 const currency = new Intl.NumberFormat('en-GB', { style: 'currency', currency: 'GBP', maximumFractionDigits: 0 });
 const INPUT_CLASSES =
@@ -381,6 +382,8 @@ export function TeamPage() {
       {result?.ok && stylists.length > 0 && (
         <>
           <AvatarStack stylists={stylists} />
+
+          <StylistPaceSection />
 
           <Card>
             <h2 className="text-sm font-semibold text-[var(--color-ink)]">Utilization</h2>

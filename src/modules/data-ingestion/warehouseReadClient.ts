@@ -852,3 +852,29 @@ export interface GoogleReviewSnapshotResult {
 export function fetchGoogleReviewSnapshot(): Promise<GoogleReviewSnapshotResult> {
   return callFunction({ query: 'google_review_snapshot' });
 }
+
+export interface StylistPace {
+  stylistId: string;
+  name: string;
+  monthToDateRevenue: number;
+  bookedRestOfMonthRevenue: number;
+  projectedMonthRevenue: number;
+  priorMonthRevenue: number | null;
+  deltaPct: number | null;
+  paceStatus: 'ahead' | 'on-track' | 'behind' | 'not-measurable';
+}
+
+export interface StylistPaceResult {
+  ok: boolean;
+  monthStart?: string;
+  monthEnd?: string;
+  daysElapsed?: number;
+  daysInMonth?: number;
+  stylists?: StylistPace[];
+  error?: string;
+}
+
+/** Real per-stylist monthly pace (added 8 Sep 2026) — see `handleStylistPace`'s own comment: uses real future bookings already on the calendar, not a days-elapsed guess, compared against that stylist's own real prior-month revenue. */
+export function fetchStylistPace(): Promise<StylistPaceResult> {
+  return callFunction({ query: 'stylist_pace' });
+}

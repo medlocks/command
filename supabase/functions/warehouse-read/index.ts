@@ -2356,6 +2356,80 @@ async function handleCompetitorSalonFullMenu(): Promise<Response> {
   return jsonResponse({ ok: true, competitors: Array.from(byCompetitor.values()) });
 }
 
+/** Same 15% threshold as `businessRisk.ts`'s own `PACE_DECLINE_RISK_PCT` — one stated assumption reused, not a second invented one. */
+const STYLIST_PACE_THRESHOLD_PCT = 0.15;
+
+/**
+ * Real per-stylist monthly pace (added 8 Sep 2026, per direct request —
+ * "do a target/pace tracker if you think this would benefit the running
+ * of the salon"). Unlike a naive days-elapsed extrapolation, this uses
+ * real future bookings already on the calendar for the rest of the
+ * month (`REAL_WORK_STATUSES` includes 'New'/'Confirmed', confirmed live
+ * to carry real quoted `net_sales`, not null, for future appointments) —
+ * a genuinely better real signal than a straight-line guess, since a
+ * thin back half of the month shows up here before it would in a pure
+ * extrapolation. Compared against that same stylist's real prior-month
+ * revenue (no invented target), so a stylist can be flagged as behind
+ * pace while there's still real time in the month to fix it, not in a
+ * month-end post-mortem.
+ */
+async function handleStylistPace(): Promise<Response> {
+  const today = new Date().toISOString().slice(0, 10);
+  const todayDate = new Date(`${today}T00:00:00Z`);
+  const monthStart = `${today.slice(0, 7)}-01`;
+  const daysInMonth = new Date(Date.UTC(todayDate.getUTCFullYear(), todayDate.getUTCMonth() + 1, 0)).getUTCDate();
+  const monthEnd = `${today.slice(0, 7)}-${String(daysInMonth).padStart(2, '0')}`;
+  const priorMonthDate = new Date(Date.UTC(todayDate.getUTCFullYear(), todayDate.getUTCMonth() - 1, 1));
+  const priorMonthStart = priorMonthDate.toISOString().slice(0, 10);
+  const priorMonthEnd = new Date(Date.UTC(todayDate.getUTCFullYear(), todayDate.getUTCMonth(), 0)).toISOString().slice(0, 10);
+
+  const [
+    { data: stylists, error: stylistsError },
+    { data: monthRows, error: monthError },
+    { data: priorMonthRows, error: priorMonthError },
+  ] = await Promise.all([
+    supabase.from('stylists').select('id, name').eq('employment_status', 'active'),
+    supabase.from('fresha_appointments').select('team_member_name, scheduled_date, net_sales').in('status', REAL_WORK_STATUSES).gte('scheduled_date', monthStart).lte('scheduled_date', monthEnd),
+    supabase.from('fresha_appointments').select('team_member_name, net_sales').in('status', REAL_WORK_STATUSES).gte('scheduled_date', priorMonthStart).lte('scheduled_date', priorMonthEnd),
+  ]);
+  if (stylistsError) return jsonResponse({ ok: false, error: stylistsError.message }, 500);
+  if (monthError) return jsonResponse({ ok: false, error: monthError.message }, 500);
+  if (priorMonthError) return jsonResponse({ ok: false, error: priorMonthError.message }, 500);
+
+  type StylistRow = { id: string; name: string };
+  type MonthRow = { team_member_name: string; scheduled_date: string; net_sales: number };
+  type PriorRow = { team_member_name: string; net_sales: number };
+
+  const results = ((stylists ?? []) as StylistRow[]).map((stylist) => {
+    const rows = ((monthRows ?? []) as MonthRow[]).filter((r) => r.team_member_name === stylist.name);
+    const monthToDateRevenue = rows.filter((r) => r.scheduled_date <= today).reduce((sum, r) => sum + Number(r.net_sales), 0);
+    const bookedRestOfMonthRevenue = rows.filter((r) => r.scheduled_date > today).reduce((sum, r) => sum + Number(r.net_sales), 0);
+    const projectedMonthRevenue = monthToDateRevenue + bookedRestOfMonthRevenue;
+
+    const priorMonthRevenue = ((priorMonthRows ?? []) as PriorRow[]).filter((r) => r.team_member_name === stylist.name).reduce((sum, r) => sum + Number(r.net_sales), 0);
+
+    let paceStatus: 'ahead' | 'on-track' | 'behind' | 'not-measurable' = 'not-measurable';
+    let deltaPct: number | null = null;
+    if (priorMonthRevenue > 0) {
+      deltaPct = (projectedMonthRevenue - priorMonthRevenue) / priorMonthRevenue;
+      paceStatus = deltaPct <= -STYLIST_PACE_THRESHOLD_PCT ? 'behind' : deltaPct >= STYLIST_PACE_THRESHOLD_PCT ? 'ahead' : 'on-track';
+    }
+
+    return {
+      stylistId: stylist.id,
+      name: stylist.name,
+      monthToDateRevenue: Math.round(monthToDateRevenue),
+      bookedRestOfMonthRevenue: Math.round(bookedRestOfMonthRevenue),
+      projectedMonthRevenue: Math.round(projectedMonthRevenue),
+      priorMonthRevenue: priorMonthRevenue > 0 ? Math.round(priorMonthRevenue) : null,
+      deltaPct: deltaPct !== null ? Math.round(deltaPct * 1000) / 1000 : null,
+      paceStatus,
+    };
+  });
+
+  return jsonResponse({ ok: true, monthStart, monthEnd, daysElapsed: todayDate.getUTCDate(), daysInMonth, stylists: results });
+}
+
 /**
  * Real, best-available Google review snapshot for Medlocks itself (added
  * 8 Sep 2026). See `google-reviews-scan`'s own comment for why this is
@@ -2761,7 +2835,8 @@ interface RequestBody {
     | 'competitor_changes_feed'
     | 'competitor_hiring_signals'
     | 'capacity_heatmap'
-    | 'google_review_snapshot';
+    | 'google_review_snapshot'
+    | 'stylist_pace';
   retailTypeNames?: string[];
   clientName?: string;
   periods?: unknown;
@@ -2851,6 +2926,8 @@ Deno.serve(async (req) => {
       return handleCapacityHeatmap();
     case 'google_review_snapshot':
       return handleGoogleReviewSnapshot();
+    case 'stylist_pace':
+      return handleStylistPace();
     default:
       return jsonResponse({ ok: false, error: 'Unknown query' }, 400);
   }
