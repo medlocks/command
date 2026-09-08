@@ -2542,6 +2542,26 @@ async function handleStylistPace(): Promise<Response> {
 }
 
 /**
+ * Real UK hair-industry trend digests (added 8 Sep 2026). See
+ * `industry-trends-scan`'s own comment — real, citation-backed prose,
+ * capped at the most recent 12 real weekly digests (a real running
+ * history, not a singleton).
+ */
+async function handleIndustryTrendDigests(): Promise<Response> {
+  const { data, error } = await supabase.from('industry_trend_digests').select('summary, source_urls, checked_at').order('checked_at', { ascending: false }).limit(12);
+  if (error) return jsonResponse({ ok: false, error: error.message }, 500);
+
+  return jsonResponse({
+    ok: true,
+    digests: (data ?? []).map((row) => ({
+      summary: row.summary as string,
+      sourceUrls: row.source_urls as string[],
+      checkedAt: row.checked_at as string,
+    })),
+  });
+}
+
+/**
  * Real, best-available Google review snapshot for Medlocks itself (added
  * 8 Sep 2026). See `google-reviews-scan`'s own comment for why this is
  * never presented as a live figure — OpenAI's web-search tool can't
@@ -2948,7 +2968,8 @@ interface RequestBody {
     | 'capacity_heatmap'
     | 'google_review_snapshot'
     | 'stylist_pace'
-    | 'capacity_calendar';
+    | 'capacity_calendar'
+    | 'industry_trend_digests';
   retailTypeNames?: string[];
   clientName?: string;
   periods?: unknown;
@@ -3044,6 +3065,8 @@ Deno.serve(async (req) => {
       return handleStylistPace();
     case 'capacity_calendar':
       return handleCapacityCalendar(body.startDate, body.endDate);
+    case 'industry_trend_digests':
+      return handleIndustryTrendDigests();
     default:
       return jsonResponse({ ok: false, error: 'Unknown query' }, 400);
   }

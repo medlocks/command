@@ -908,3 +908,20 @@ export interface CapacityCalendarResult {
 export function fetchCapacityCalendar(startDate: string, endDate: string): Promise<CapacityCalendarResult> {
   return callFunction({ query: 'capacity_calendar', startDate, endDate });
 }
+
+export interface IndustryTrendDigest {
+  summary: string;
+  sourceUrls: string[];
+  checkedAt: string;
+}
+
+export interface IndustryTrendDigestsResult {
+  ok: boolean;
+  digests?: IndustryTrendDigest[];
+  error?: string;
+}
+
+/** Real, citation-backed UK hair-industry trend digests (added 8 Sep 2026) — see `handleIndustryTrendDigests`'s own comment; a real running history, most recent first. */
+export function fetchIndustryTrendDigests(): Promise<IndustryTrendDigestsResult> {
+  return callFunction({ query: 'industry_trend_digests' });
+}

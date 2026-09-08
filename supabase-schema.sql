@@ -1047,6 +1047,22 @@ select cron.schedule(
 );
 
 select cron.schedule(
+  'industry-trends-scan',
+  '30 5 * * 1',
+  $$
+  select net.http_post(
+    url := 'https://yimtohrunyzkxdrlhhcr.supabase.co/functions/v1/industry-trends-scan',
+    headers := jsonb_build_object(
+      'Content-Type', 'application/json',
+      'Authorization', 'Bearer ' || (select decrypted_secret from vault.decrypted_secrets where name = 'digest_cron_anon_key'),
+      'x-app-secret', (select decrypted_secret from vault.decrypted_secrets where name = 'shopify_sync_cron_shared_secret')
+    ),
+    body := '{}'::jsonb
+  ) as request_id;
+  $$
+);
+
+select cron.schedule(
   'hiring-scan',
   '0 5 * * 1',
   $$
@@ -1633,6 +1649,30 @@ create table public.google_review_snapshot (
 alter table public.google_review_snapshot enable row level security;
 
 create policy "owner_manager_google_review_snapshot" on public.google_review_snapshot
+  for all using (public.current_user_role() in ('owner', 'manager', 'admin'));
+
+-- Real UK hair-industry trend digest (added 8 Sep 2026, per direct
+-- request: "scanning for new trends in the hair industry... so I'm
+-- always up to date"). Unlike the competitor/hiring/reviews checks
+-- above, this doesn't fight an interactive tool or a bot-blocked site —
+-- real trade press and trend articles are exactly the kind of indexed,
+-- searchable content OpenAI's `web_search_preview` tool is good at, so
+-- this is real, citation-backed prose with no known access limitation.
+-- A real running history (not a singleton), since trends genuinely
+-- accumulate and rotate week to week — each row is one real week's
+-- digest, not an overwritten "latest" snapshot.
+create table public.industry_trend_digests (
+  id uuid primary key default gen_random_uuid(),
+  summary text not null,
+  source_urls text[] not null default '{}',
+  checked_at timestamptz not null default now()
+);
+
+create index idx_industry_trend_digests_checked on public.industry_trend_digests(checked_at desc);
+
+alter table public.industry_trend_digests enable row level security;
+
+create policy "owner_manager_industry_trend_digests" on public.industry_trend_digests
   for all using (public.current_user_role() in ('owner', 'manager', 'admin'));
 
 -- =====================================================================

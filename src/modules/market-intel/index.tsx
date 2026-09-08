@@ -5,6 +5,7 @@ import { FullMenusSection } from './FullMenusSection';
 import { ProductRivalsSection } from './ProductRivalsSection';
 import { VoiceOfCustomerSection } from './VoiceOfCustomerSection';
 import { HiringSignalsSection } from './HiringSignalsSection';
+import { IndustryTrendsSection } from './IndustryTrendsSection';
 
 /**
  * Market Intel (added 7 Sep 2026, per direct request: "it needs to be
@@ -30,11 +31,13 @@ export function MarketIntelPage() {
         </Link>
         <h1 className="mt-1 text-xl font-semibold tracking-tight text-[var(--color-ink)]">Market intel</h1>
         <p className="mt-1 text-sm text-[var(--color-ink-secondary)]">
-          Real, daily-scanned intelligence on the Wakefield hair market and Glass Blonde's real rivals — genuine competitor
-          prices and services, real client reviews across the market, and a real log of what's actually changed.
+          Real, regularly-scanned intelligence on the Wakefield hair market, the wider UK hair industry, and Glass Blonde's
+          real rivals — genuine competitor prices and services, real client reviews, real hair-industry trends, and a real
+          log of what's actually changed.
         </p>
       </header>
 
+      <IndustryTrendsSection />
       <RecentChangesSection />
       <HiringSignalsSection />
       <GapPromptsSection />
