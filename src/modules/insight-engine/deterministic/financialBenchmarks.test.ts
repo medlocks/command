@@ -74,7 +74,9 @@ describe('buildFinancialBenchmarks', () => {
     expect(productCost?.recommendation).toMatch(/no real product cost has been logged/i);
 
     const totalCosts = result.factors.find((f) => f.id === 'total-costs');
-    expect(totalCosts?.recommendation).toMatch(/understates the real total/i);
+    expect(totalCosts?.status).toBe('not-measurable');
+    expect(totalCosts?.actualPct).not.toBeNull(); // the real floor is still shown, just not confidently badged
+    expect(totalCosts?.recommendation).toMatch(/real floor, not the real total/i);
   });
 
   it('omits the rent factor entirely (not a fabricated "not-measurable" guess) when overhead has never been entered', () => {

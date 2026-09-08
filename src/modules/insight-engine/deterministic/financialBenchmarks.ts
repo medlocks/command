@@ -138,12 +138,32 @@ function buildTotalCostsFactor(
 
   const totalCosts = wageCost30d + productCost30d + adSpend30d + overhead.monthlyRent + overhead.monthlyInsurance + overhead.monthlyLoanRepayments + overhead.monthlyOtherFixedCosts;
   const actualPct = totalCosts / revenue30d;
+
+  // A real £0 product cost isn't a real zero — it's an unentered input
+  // (see `buildProductCostFactor`'s own comment). Confidently badging
+  // this "healthy" from a total that's missing an entire real 8–12%-of-
+  // revenue cost category would be exactly the false-confidence-from-a-
+  // caveat-buried-in-text bug this app has been built to avoid — the
+  // floor number is shown, but the status stays not-measurable until the
+  // real figure exists. Caught live, 8 Sep 2026: this floor read as a
+  // confident "58% costs, healthy" when real costs (once colour/backbar
+  // product spend is entered) are plausibly 66–70%+.
+  if (productCost30d === 0) {
+    return {
+      id: 'total-costs',
+      label: 'Total operating costs',
+      actualPct,
+      rangeLabel: '65–75% of revenue',
+      status: 'not-measurable',
+      recommendation: `${pct(actualPct)} of revenue is a real floor, not the real total — product cost hasn't been logged yet, and salons typically run 8–12% of revenue there. Enter it under Settings → Manual Data to see a real, trustworthy total-costs figure instead of one missing a whole cost category.`,
+    };
+  }
+
   const status: BenchmarkStatus = actualPct <= 0.75 ? 'healthy' : actualPct <= 0.8 ? 'watch' : 'high';
-  const productCostCaveat = productCost30d === 0 ? ' (product cost isn\'t included — none logged yet for this period, so this understates the real total.)' : '';
   const recommendation =
     status === 'healthy'
-      ? `Total real costs (wages, product, ad spend, rent, insurance, loan repayments, other fixed costs) are ${pct(actualPct)} of revenue — within the 65–75% a healthy salon typically runs at, leaving real room for profit.${productCostCaveat}`
-      : `Total real costs are ${pct(actualPct)} of revenue — above the 65–75% healthy range, and past 80% is a genuine warning sign in salon financial guidance. Work through labour first (usually the biggest lever), then rent, ad spend, and product spend.${productCostCaveat}`;
+      ? `Total real costs (wages, product, ad spend, rent, insurance, loan repayments, other fixed costs) are ${pct(actualPct)} of revenue — within the 65–75% a healthy salon typically runs at, leaving real room for profit.`
+      : `Total real costs are ${pct(actualPct)} of revenue — above the 65–75% healthy range, and past 80% is a genuine warning sign in salon financial guidance. Work through labour first (usually the biggest lever), then rent, ad spend, and product spend.`;
 
   return { id: 'total-costs', label: 'Total operating costs', actualPct, rangeLabel: '65–75% of revenue', status, recommendation };
 }
