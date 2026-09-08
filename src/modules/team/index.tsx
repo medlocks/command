@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router';
 import { Button, Card, DateRangePicker, DivergingBarChart, SkeletonStatRow, type DateRangePreset } from '@/shared';
 import type { DateRange } from '@/shared/types/warehouse';
 import {
@@ -384,6 +385,16 @@ export function TeamPage() {
           <AvatarStack stylists={stylists} />
 
           <StylistPaceSection />
+
+          <Link to="/capacity" className="block">
+            <Card className="flex items-center justify-between transition-shadow hover:shadow-md active:shadow-sm">
+              <div>
+                <h2 className="text-sm font-semibold text-[var(--color-ink)]">Capacity calendar</h2>
+                <p className="mt-1 text-xs text-[var(--color-ink-secondary)]">Real day-by-day booked vs. scheduled hours — week or month view, including real future weeks.</p>
+              </div>
+              <span className="shrink-0 text-[var(--color-ink-muted)]">→</span>
+            </Card>
+          </Link>
 
           <Card>
             <h2 className="text-sm font-semibold text-[var(--color-ink)]">Utilization</h2>

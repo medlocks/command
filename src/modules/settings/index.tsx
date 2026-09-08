@@ -82,6 +82,19 @@ export function SettingsPage() {
           <span className="shrink-0 text-[var(--color-ink-muted)]">→</span>
         </Card>
       </Link>
+      <Link to="/capacity" className="block">
+        <Card className="flex items-center justify-between transition-shadow hover:shadow-md active:shadow-sm">
+          <div>
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-[var(--color-ink-muted)]">
+              Capacity Calendar
+            </h2>
+            <p className="mt-1 text-sm text-[var(--color-ink-secondary)]">
+              Real day-by-day booked vs. scheduled hours per stylist — week or month view, including real future weeks already booked.
+            </p>
+          </div>
+          <span className="shrink-0 text-[var(--color-ink-muted)]">→</span>
+        </Card>
+      </Link>
       <Link to="/market-intel" className="block">
         <Card className="flex items-center justify-between transition-shadow hover:shadow-md active:shadow-sm">
           <div>

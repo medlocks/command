@@ -862,6 +862,8 @@ export interface StylistPace {
   priorMonthRevenue: number | null;
   deltaPct: number | null;
   paceStatus: 'ahead' | 'on-track' | 'behind' | 'not-measurable';
+  /** Real logged leave days overlapping this month (added 8 Sep 2026) — caught live: a real holiday read as "behind pace" with nothing actionable behind it. Shown as a caveat, never silently baked into the revenue math. */
+  leaveDaysThisMonth: number;
 }
 
 export interface StylistPaceResult {
@@ -877,4 +879,32 @@ export interface StylistPaceResult {
 /** Real per-stylist monthly pace (added 8 Sep 2026) — see `handleStylistPace`'s own comment: uses real future bookings already on the calendar, not a days-elapsed guess, compared against that stylist's own real prior-month revenue. */
 export function fetchStylistPace(): Promise<StylistPaceResult> {
   return callFunction({ query: 'stylist_pace' });
+}
+
+export interface CapacityCalendarDay {
+  date: string;
+  dayOfWeek: number;
+  isOnLeave: boolean;
+  availableHours: number;
+  bookedHours: number;
+  utilizationPct: number | null;
+}
+
+export interface CapacityCalendarStylist {
+  stylistId: string;
+  name: string;
+  days: CapacityCalendarDay[];
+}
+
+export interface CapacityCalendarResult {
+  ok: boolean;
+  startDate?: string;
+  endDate?: string;
+  stylists?: CapacityCalendarStylist[];
+  error?: string;
+}
+
+/** Real day-by-day capacity for an arbitrary real date range (added 8 Sep 2026) — see `handleCapacityCalendar`'s own comment. Unlike `fetchCapacityHeatmap` (an 8-week weekday average), this returns each real individual date, including real future dates already booked. */
+export function fetchCapacityCalendar(startDate: string, endDate: string): Promise<CapacityCalendarResult> {
+  return callFunction({ query: 'capacity_calendar', startDate, endDate });
 }

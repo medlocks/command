@@ -2308,6 +2308,93 @@ async function handleCapacityHeatmap(): Promise<Response> {
   return jsonResponse({ ok: true, windowWeeks: CAPACITY_HEATMAP_WINDOW_WEEKS, stylists: stylistResults, lowUtilizationSlots });
 }
 
+const MAX_CAPACITY_CALENDAR_DAYS = 62; // a bit over 2 months — a real, sane cap, not an arbitrary-range query
+
+/**
+ * Real day-by-day capacity for an arbitrary date range (added 8 Sep
+ * 2026, per direct request: "a clear day by day heat map for the
+ * week... and maybe even month option"). Unlike `handleCapacityHeatmap`
+ * (which averages a weekday's utilization across the last 8 real weeks),
+ * this returns each real, individual calendar date — including real
+ * future dates, since real bookings already exist for those (the same
+ * `REAL_WORK_STATUSES`-including-future-'Confirmed'/'New' fact the
+ * monthly pace tracker relies on) — so a real future week can be checked
+ * for genuine already-booked density, not just history. The working-
+ * pattern lookup uses whichever real pattern was actually effective on
+ * each specific date, not just "today's" pattern, so a past week reads
+ * correctly even after a real hours change.
+ */
+async function handleCapacityCalendar(startDate: unknown, endDate: unknown): Promise<Response> {
+  if (typeof startDate !== 'string' || typeof endDate !== 'string' || !startDate || !endDate) {
+    return jsonResponse({ ok: false, error: 'startDate and endDate are required' }, 400);
+  }
+  if (daysBetween(startDate, endDate) < 0 || daysBetween(startDate, endDate) > MAX_CAPACITY_CALENDAR_DAYS) {
+    return jsonResponse({ ok: false, error: `Range must be between 0 and ${MAX_CAPACITY_CALENDAR_DAYS} days` }, 400);
+  }
+
+  const [
+    { data: stylists, error: stylistsError },
+    { data: patternRows, error: patternError },
+    { data: leaveRows, error: leaveError },
+    { data: appointments, error: apptError },
+  ] = await Promise.all([
+    supabase.from('stylists').select('id, name').eq('employment_status', 'active'),
+    supabase.from('stylist_working_pattern').select('stylist_id, day_of_week, hours, effective_from, effective_to'),
+    supabase.from('stylist_leave').select('stylist_id, date_start, date_end').gte('date_end', startDate).lte('date_start', endDate),
+    supabase
+      .from('fresha_appointments')
+      .select('team_member_name, scheduled_date, duration_minutes')
+      .in('status', REAL_WORK_STATUSES)
+      .gte('scheduled_date', startDate)
+      .lte('scheduled_date', endDate),
+  ]);
+  if (stylistsError) return jsonResponse({ ok: false, error: stylistsError.message }, 500);
+  if (patternError) return jsonResponse({ ok: false, error: patternError.message }, 500);
+  if (leaveError) return jsonResponse({ ok: false, error: leaveError.message }, 500);
+  if (apptError) return jsonResponse({ ok: false, error: apptError.message }, 500);
+
+  type StylistRow = { id: string; name: string };
+  type PatternRow = { stylist_id: string; day_of_week: number; hours: number; effective_from: string; effective_to: string | null };
+  type LeaveRow = { stylist_id: string; date_start: string; date_end: string };
+  type ApptRow = { team_member_name: string; scheduled_date: string; duration_minutes: number };
+
+  const isOnLeave = (stylistId: string, date: string) =>
+    ((leaveRows ?? []) as LeaveRow[]).some((l) => l.stylist_id === stylistId && l.date_start <= date && date <= l.date_end);
+
+  function hoursEffectiveOn(stylistId: string, dayOfWeek: number, date: string): number {
+    const candidates = ((patternRows ?? []) as PatternRow[]).filter(
+      (p) => p.stylist_id === stylistId && p.day_of_week === dayOfWeek && p.effective_from <= date && (p.effective_to === null || p.effective_to >= date),
+    );
+    if (candidates.length === 0) return 0;
+    return candidates.reduce((latest, p) => (p.effective_from > latest.effective_from ? p : latest), candidates[0]).hours;
+  }
+
+  const apptsByStylistName = new Map<string, ApptRow[]>();
+  for (const appt of (appointments ?? []) as ApptRow[]) {
+    if (!apptsByStylistName.has(appt.team_member_name)) apptsByStylistName.set(appt.team_member_name, []);
+    apptsByStylistName.get(appt.team_member_name)!.push(appt);
+  }
+
+  const dates: string[] = [];
+  for (let d = startDate; d <= endDate; d = addDays(d, 1)) dates.push(d);
+
+  const stylistResults = ((stylists ?? []) as StylistRow[]).map((stylist) => {
+    const realAppointments = apptsByStylistName.get(stylist.name) ?? [];
+    const days = dates.map((date) => {
+      const dayOfWeek = new Date(`${date}T00:00:00Z`).getUTCDay();
+      const onLeave = isOnLeave(stylist.id, date);
+      const availableHours = onLeave ? 0 : hoursEffectiveOn(stylist.id, dayOfWeek, date);
+      const bookedMinutes = realAppointments.filter((a) => a.scheduled_date === date).reduce((sum, a) => sum + a.duration_minutes, 0);
+      const bookedHours = Math.round((bookedMinutes / 60) * 10) / 10;
+      const utilizationPct = availableHours > 0 ? Math.round((bookedHours / availableHours) * 1000) / 1000 : null;
+      return { date, dayOfWeek, isOnLeave: onLeave, availableHours, bookedHours, utilizationPct };
+    });
+    return { stylistId: stylist.id, name: stylist.name, days };
+  });
+
+  return jsonResponse({ ok: true, startDate, endDate, stylists: stylistResults });
+}
+
 /**
  * Real, full per-competitor service menu (added 7 Sep 2026, per direct
  * request: "way more info inside it"). Unlike `handleCompetitorSalonGaps`,
@@ -2387,18 +2474,41 @@ async function handleStylistPace(): Promise<Response> {
     { data: stylists, error: stylistsError },
     { data: monthRows, error: monthError },
     { data: priorMonthRows, error: priorMonthError },
+    { data: leaveRows, error: leaveError },
   ] = await Promise.all([
     supabase.from('stylists').select('id, name').eq('employment_status', 'active'),
     supabase.from('fresha_appointments').select('team_member_name, scheduled_date, net_sales').in('status', REAL_WORK_STATUSES).gte('scheduled_date', monthStart).lte('scheduled_date', monthEnd),
     supabase.from('fresha_appointments').select('team_member_name, net_sales').in('status', REAL_WORK_STATUSES).gte('scheduled_date', priorMonthStart).lte('scheduled_date', priorMonthEnd),
+    // Real logged leave overlapping this month (added 8 Sep 2026, caught
+    // live: a real stylist on real holiday read as "-64% behind pace"
+    // with nothing actionable behind it). Deliberately surfaced as a
+    // real caveat on the card rather than silently adjusted into the
+    // revenue math — an attempted "fair" pro-rating could just as easily
+    // bake in a wrong assumption about how much revenue those days would
+    // have earned; showing the real leave days lets the owner (who
+    // already knows the real context) read the number correctly.
+    supabase.from('stylist_leave').select('stylist_id, date_start, date_end').gte('date_end', monthStart).lte('date_start', monthEnd),
   ]);
   if (stylistsError) return jsonResponse({ ok: false, error: stylistsError.message }, 500);
   if (monthError) return jsonResponse({ ok: false, error: monthError.message }, 500);
   if (priorMonthError) return jsonResponse({ ok: false, error: priorMonthError.message }, 500);
+  if (leaveError) return jsonResponse({ ok: false, error: leaveError.message }, 500);
 
   type StylistRow = { id: string; name: string };
   type MonthRow = { team_member_name: string; scheduled_date: string; net_sales: number };
   type PriorRow = { team_member_name: string; net_sales: number };
+  type LeaveRow = { stylist_id: string; date_start: string; date_end: string };
+
+  function leaveDaysThisMonthFor(stylistId: string): number {
+    let count = 0;
+    for (const leave of (leaveRows ?? []) as LeaveRow[]) {
+      if (leave.stylist_id !== stylistId) continue;
+      const start = leave.date_start > monthStart ? leave.date_start : monthStart;
+      const end = leave.date_end < monthEnd ? leave.date_end : monthEnd;
+      if (start <= end) count += daysBetween(start, end) + 1;
+    }
+    return count;
+  }
 
   const results = ((stylists ?? []) as StylistRow[]).map((stylist) => {
     const rows = ((monthRows ?? []) as MonthRow[]).filter((r) => r.team_member_name === stylist.name);
@@ -2424,6 +2534,7 @@ async function handleStylistPace(): Promise<Response> {
       priorMonthRevenue: priorMonthRevenue > 0 ? Math.round(priorMonthRevenue) : null,
       deltaPct: deltaPct !== null ? Math.round(deltaPct * 1000) / 1000 : null,
       paceStatus,
+      leaveDaysThisMonth: leaveDaysThisMonthFor(stylist.id),
     };
   });
 
@@ -2836,13 +2947,16 @@ interface RequestBody {
     | 'competitor_hiring_signals'
     | 'capacity_heatmap'
     | 'google_review_snapshot'
-    | 'stylist_pace';
+    | 'stylist_pace'
+    | 'capacity_calendar';
   retailTypeNames?: string[];
   clientName?: string;
   periods?: unknown;
   stylistId?: string;
   range?: unknown;
   sinceDays?: unknown;
+  startDate?: unknown;
+  endDate?: unknown;
 }
 
 Deno.serve(async (req) => {
@@ -2928,6 +3042,8 @@ Deno.serve(async (req) => {
       return handleGoogleReviewSnapshot();
     case 'stylist_pace':
       return handleStylistPace();
+    case 'capacity_calendar':
+      return handleCapacityCalendar(body.startDate, body.endDate);
     default:
       return jsonResponse({ ok: false, error: 'Unknown query' }, 400);
   }

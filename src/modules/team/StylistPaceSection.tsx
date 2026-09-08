@@ -72,6 +72,11 @@ export function StylistPaceSection() {
                 <span className="font-medium text-[var(--color-ink)]">{currency.format(s.projectedMonthRevenue)} projected</span>
                 {s.priorMonthRevenue !== null && <> vs. {currency.format(s.priorMonthRevenue)} last month</>}
               </p>
+              {s.leaveDaysThisMonth > 0 && (
+                <p className="mt-1 text-xs text-[var(--color-warning)]">
+                  {s.leaveDaysThisMonth} real day{s.leaveDaysThisMonth === 1 ? '' : 's'} of logged leave this month — read the pace above with that in mind.
+                </p>
+              )}
             </div>
           );
         })}

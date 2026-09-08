@@ -14,6 +14,7 @@ import { StockPage } from '@/modules/stock';
 import { PricingPage } from '@/modules/pricing';
 import { ProductLinePage } from '@/modules/product-line';
 import { MarketIntelPage } from '@/modules/market-intel';
+import { CapacityPage } from '@/modules/capacity';
 import { ManualDataPage } from '@/modules/manual-data';
 import {
   ChatIcon,
@@ -119,6 +120,7 @@ export default function App() {
                 <Route path="/pricing" element={<PricingPage />} />
                 <Route path="/product-line" element={<ProductLinePage />} />
                 <Route path="/market-intel" element={<MarketIntelPage />} />
+                <Route path="/capacity" element={<CapacityPage />} />
                 <Route path="/data-import" element={<DataImportPage />} />
                 <Route path="/manual-data" element={<ManualDataPage />} />
               </Routes>
