@@ -1606,6 +1606,41 @@ interface BusinessOverheadPayload {
 }
 
 /** Real fixed overhead + cash reserves (added 6 Sep 2026) — a singleton row (fixed id), always upserted, never inserted twice. Every field must be a real non-negative number; there's no "estimate" flag here since these are meant to be entered from an actual bank statement/lease, not guessed. */
+/**
+ * Manual override for the Google review snapshot (added 8 Sep 2026) — the
+ * automated `google-reviews-scan` check (OpenAI web search) genuinely
+ * can't reach live Google Maps and falls back to a third-party mirror
+ * that turned out to be 7 real months stale (66 vs. the real live 98,
+ * caught live 8 Sep 2026 when Blake checked the actual listing). The
+ * owner looking at their own phone is a more reliable real source for
+ * this specific figure than any web-search tool here — this lets that
+ * real correction overwrite the stale automated one directly.
+ */
+async function handleGoogleReviewSnapshotSet(payload: unknown): Promise<Response> {
+  const p = payload as { rating?: number; reviewCount?: number } | null;
+  if (!p || typeof p.rating !== 'number' || !Number.isFinite(p.rating) || p.rating < 0 || p.rating > 5) {
+    return jsonResponse({ ok: false, error: 'rating must be a number between 0 and 5' }, 400);
+  }
+  if (typeof p.reviewCount !== 'number' || !Number.isFinite(p.reviewCount) || p.reviewCount < 0) {
+    return jsonResponse({ ok: false, error: 'reviewCount must be a non-negative number' }, 400);
+  }
+
+  const { error } = await supabase.from('google_review_snapshot').upsert(
+    {
+      id: '00000000-0000-0000-0000-000000000001',
+      rating: p.rating,
+      review_count: p.reviewCount,
+      summary: `Manually confirmed by the owner directly from the live Google Maps listing on ${new Date().toISOString().slice(0, 10)} — more reliable than the automated web-search check, which can only reach third-party mirrors that lag the real live count.`,
+      source_urls: [],
+      checked_at: new Date().toISOString(),
+    },
+    { onConflict: 'id' },
+  );
+  if (error) return jsonResponse({ ok: false, error: error.message }, 500);
+
+  return jsonResponse({ ok: true, rowsWritten: 1 });
+}
+
 async function handleBusinessOverheadSet(payload: unknown): Promise<Response> {
   const p = payload as Partial<BusinessOverheadPayload> | null;
   if (!p) return jsonResponse({ ok: false, error: 'payload is required' }, 400);
@@ -1885,6 +1920,11 @@ Deno.serve(async (req) => {
   if (body.entity === 'business_goal') {
     if (body.action === 'commit') return handleBusinessGoalSet(body.payload);
     return jsonResponse({ ok: false, error: 'Unknown action for business_goal' }, 400);
+  }
+
+  if (body.entity === 'google_review_snapshot') {
+    if (body.action === 'commit') return handleGoogleReviewSnapshotSet(body.payload);
+    return jsonResponse({ ok: false, error: 'Unknown action for google_review_snapshot' }, 400);
   }
 
   if (body.entity === 'business_debt_decisions') {

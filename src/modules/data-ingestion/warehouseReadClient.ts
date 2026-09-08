@@ -833,3 +833,22 @@ export interface CapacityHeatmapResult {
 export function fetchCapacityHeatmap(): Promise<CapacityHeatmapResult> {
   return callFunction({ query: 'capacity_heatmap' });
 }
+
+export interface GoogleReviewSnapshot {
+  rating: number | null;
+  reviewCount: number | null;
+  summary: string;
+  sourceUrls: string[];
+  checkedAt: string;
+}
+
+export interface GoogleReviewSnapshotResult {
+  ok: boolean;
+  snapshot?: GoogleReviewSnapshot | null;
+  error?: string;
+}
+
+/** Real, best-available Google review snapshot for Medlocks itself (added 8 Sep 2026) — see `handleGoogleReviewSnapshot`'s own comment for why this is never a live figure (OpenAI's web search can't reach live Google Maps, falls back to the best real secondary source, with its own real as-of date embedded in `summary`). */
+export function fetchGoogleReviewSnapshot(): Promise<GoogleReviewSnapshotResult> {
+  return callFunction({ query: 'google_review_snapshot' });
+}

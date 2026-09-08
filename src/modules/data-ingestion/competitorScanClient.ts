@@ -16,7 +16,7 @@ export interface CompetitorScanResult {
   error?: string;
 }
 
-type ScanFunctionName = 'competitor-scan-salon' | 'competitor-scan-product' | 'hiring-scan';
+type ScanFunctionName = 'competitor-scan-salon' | 'competitor-scan-product' | 'hiring-scan' | 'google-reviews-scan';
 
 function functionUrl(name: ScanFunctionName): string {
   const base = import.meta.env.VITE_SUPABASE_URL;
@@ -56,4 +56,8 @@ export function triggerCompetitorProductScan(): Promise<CompetitorScanResult> {
 
 export function triggerHiringScan(): Promise<CompetitorScanResult> {
   return triggerScan('hiring-scan');
+}
+
+export function triggerGoogleReviewsScan(): Promise<CompetitorScanResult> {
+  return triggerScan('google-reviews-scan');
 }

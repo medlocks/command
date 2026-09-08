@@ -398,6 +398,11 @@ export function setBusinessGoal(payload: { targetValuation: number; targetDate: 
   return callFunction({ entity: 'business_goal', action: 'commit', payload });
 }
 
+/** Manual correction for the Google review snapshot (added 8 Sep 2026) — the owner looking at the real live Google Maps listing is more reliable than the automated web-search check, which can only reach third-party mirrors that can lag the real live count by months. */
+export function setGoogleReviewSnapshot(payload: { rating: number; reviewCount: number }): Promise<WarehouseWriteResult> {
+  return callFunction({ entity: 'google_review_snapshot', action: 'commit', payload });
+}
+
 export function removeRetailProductionBatch(payload: { id: string }): Promise<WarehouseWriteResult> {
   return callFunction({ entity: 'retail_production_batches', action: 'remove', payload });
 }

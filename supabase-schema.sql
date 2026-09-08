@@ -1031,6 +1031,22 @@ select cron.schedule(
 -- ~15s, so scanning ~19 real competitors daily would be needless real
 -- API spend for no real new signal most days.
 select cron.schedule(
+  'google-reviews-scan',
+  '15 5 * * 1',
+  $$
+  select net.http_post(
+    url := 'https://yimtohrunyzkxdrlhhcr.supabase.co/functions/v1/google-reviews-scan',
+    headers := jsonb_build_object(
+      'Content-Type', 'application/json',
+      'Authorization', 'Bearer ' || (select decrypted_secret from vault.decrypted_secrets where name = 'digest_cron_anon_key'),
+      'x-app-secret', (select decrypted_secret from vault.decrypted_secrets where name = 'shopify_sync_cron_shared_secret')
+    ),
+    body := '{}'::jsonb
+  ) as request_id;
+  $$
+);
+
+select cron.schedule(
   'hiring-scan',
   '0 5 * * 1',
   $$
@@ -1592,6 +1608,31 @@ create table public.competitor_hiring_signals (
 alter table public.competitor_hiring_signals enable row level security;
 
 create policy "owner_manager_competitor_hiring_signals" on public.competitor_hiring_signals
+  for all using (public.current_user_role() in ('owner', 'manager', 'admin'));
+
+-- Real Google review snapshot for Medlocks itself (added 8 Sep 2026, per
+-- direct question: "can't you grab our reviews... use open ai api
+-- instead of export"). Live-tested: OpenAI's web-search tool genuinely
+-- cannot load the live Google Maps page (same interactive-tool wall as
+-- Google Ads Transparency Center) — it falls back to the best real
+-- secondary source it can find (a third-party review mirror), which
+-- comes with its own real "last updated" date that can lag the live
+-- count by months. This is deliberately NOT presented as a live number:
+-- `summary` always states the model's own real as-of date, and the UI
+-- shows it as a best-available snapshot, not current truth. Singleton
+-- row (one real business, no history needed beyond "most recent check").
+create table public.google_review_snapshot (
+  id uuid primary key default '00000000-0000-0000-0000-000000000001',
+  rating numeric(2,1),
+  review_count integer,
+  summary text not null,
+  source_urls text[] not null default '{}',
+  checked_at timestamptz not null default now()
+);
+
+alter table public.google_review_snapshot enable row level security;
+
+create policy "owner_manager_google_review_snapshot" on public.google_review_snapshot
   for all using (public.current_user_role() in ('owner', 'manager', 'admin'));
 
 -- =====================================================================

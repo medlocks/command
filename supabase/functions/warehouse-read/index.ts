@@ -2357,6 +2357,31 @@ async function handleCompetitorSalonFullMenu(): Promise<Response> {
 }
 
 /**
+ * Real, best-available Google review snapshot for Medlocks itself (added
+ * 8 Sep 2026). See `google-reviews-scan`'s own comment for why this is
+ * never presented as a live figure — OpenAI's web-search tool can't
+ * reach live Google Maps, so it falls back to the best real secondary
+ * source it finds, which carries its own real (and possibly stale) "as
+ * of" date embedded in `summary`.
+ */
+async function handleGoogleReviewSnapshot(): Promise<Response> {
+  const { data, error } = await supabase.from('google_review_snapshot').select('rating, review_count, summary, source_urls, checked_at').maybeSingle();
+  if (error) return jsonResponse({ ok: false, error: error.message }, 500);
+  if (!data) return jsonResponse({ ok: true, snapshot: null });
+
+  return jsonResponse({
+    ok: true,
+    snapshot: {
+      rating: data.rating !== null ? Number(data.rating) : null,
+      reviewCount: data.review_count,
+      summary: data.summary,
+      sourceUrls: data.source_urls,
+      checkedAt: data.checked_at,
+    },
+  });
+}
+
+/**
  * Real, OpenAI-web-search-backed hiring signals (added 7 Sep 2026, per
  * direct request: "scan any job postings to help us beat and win the
  * hiring game"). See `hiring-scan`'s own comment for the full mechanism
@@ -2735,7 +2760,8 @@ interface RequestBody {
     | 'competitor_salon_full_menu'
     | 'competitor_changes_feed'
     | 'competitor_hiring_signals'
-    | 'capacity_heatmap';
+    | 'capacity_heatmap'
+    | 'google_review_snapshot';
   retailTypeNames?: string[];
   clientName?: string;
   periods?: unknown;
@@ -2823,6 +2849,8 @@ Deno.serve(async (req) => {
       return handleCompetitorHiringSignals();
     case 'capacity_heatmap':
       return handleCapacityHeatmap();
+    case 'google_review_snapshot':
+      return handleGoogleReviewSnapshot();
     default:
       return jsonResponse({ ok: false, error: 'Unknown query' }, 400);
   }
